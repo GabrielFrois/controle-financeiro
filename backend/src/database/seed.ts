@@ -1,7 +1,10 @@
 import pool from './index.js';
 
 const demoData = {
-  users: [{ name: "Gabriel" }, { name: "Klara" }],
+  users: [
+    { name: "Gabriel", color: "#1976d2" },
+    { name: "Klara", color: "#a30d41" }
+  ],
   transactions: [
     { user: 'Gabriel', cat: 'Salário', pay: 'Pix', desc: 'Salário Mensal', val: 5000.00, type: 'INCOME', date: '2025-12-28' },
     { user: 'Klara', cat: 'Salário', pay: 'Pix', desc: 'Salário Mensal', val: 4500.00, type: 'INCOME', date: '2025-12-28' },
@@ -62,26 +65,27 @@ async function seed() {
   try {
     await client.query('BEGIN');
 
-    // Inseri Usuários e mapeia IDs
+    //Inseri usuários e mapeia IDs
     const userMap: Record<string, number> = {};
     for (const u of demoData.users) {
       const res = await client.query(
-        'INSERT INTO users (name) VALUES ($1) ON CONFLICT DO NOTHING RETURNING id',
-        [u.name]
+        'INSERT INTO users (name, color) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING id',
+        [u.name, u.color]
       );
       const id = res.rows.length > 0 ? res.rows[0].id : (await client.query('SELECT id FROM users WHERE name = $1', [u.name])).rows[0].id;
       userMap[u.name] = id;
     }
 
-    // Mapeia IDs das Categorias já existentes
+    // Mapeia IDs das categorias já existentes
     const catRows = await client.query('SELECT id, name FROM categories');
     const catMap: Record<string, number> = {};
     catRows.rows.forEach(row => catMap[row.name] = row.id);
+
     const methodRows = await client.query('SELECT id, name FROM payment_methods');
     const methodMap: Record<string, number> = {};
     methodRows.rows.forEach(row => methodMap[row.name] = row.id);
 
-    // Inseri Transações de Exemplo
+    //Inseri transações de exemplo
     console.log(">>> Populando banco com dados de exemplo...");
     await client.query('DELETE FROM transactions');
 
@@ -103,5 +107,4 @@ async function seed() {
     process.exit();
   }
 }
-
 seed();

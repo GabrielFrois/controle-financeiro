@@ -11,6 +11,11 @@ CREATE TABLE IF NOT EXISTS categories (
     type VARCHAR(10) CHECK (type IN ('INCOME', 'EXPENSE')) NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS payment_methods (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) UNIQUE NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS transactions (
     id SERIAL PRIMARY KEY,
     description TEXT NOT NULL,
@@ -19,5 +24,6 @@ CREATE TABLE IF NOT EXISTS transactions (
     date DATE DEFAULT CURRENT_DATE,
     user_id INTEGER REFERENCES users(id),
     category_id INTEGER REFERENCES categories(id),
+    payment_method_id INTEGER REFERENCES payment_methods(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

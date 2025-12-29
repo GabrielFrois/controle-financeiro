@@ -6,6 +6,7 @@
     "dev": "tsx watch src/server.ts",
     "init": "tsx src/database/init-db.ts",
     "seed": "tsx src/database/seed.ts",
+    "clear": "tsx src/database/clear.ts",
     "build": "tsc"
   },
   "author": "Gabriel",

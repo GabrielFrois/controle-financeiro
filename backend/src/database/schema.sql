@@ -21,6 +21,13 @@ CREATE TABLE IF NOT EXISTS payment_methods (
     active BOOLEAN DEFAULT TRUE
 );
 
+CREATE TABLE IF NOT EXISTS assets (
+    id SERIAL PRIMARY KEY,
+    ticker VARCHAR(20) UNIQUE NOT NULL,
+    type VARCHAR(50) DEFAULT 'Variável',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS transactions (
     id SERIAL PRIMARY KEY,
     description TEXT NOT NULL,
@@ -30,5 +37,12 @@ CREATE TABLE IF NOT EXISTS transactions (
     user_id INTEGER REFERENCES users(id),
     category_id INTEGER REFERENCES categories(id),
     payment_method_id INTEGER REFERENCES payment_methods(id),
+    asset_id INTEGER REFERENCES assets(id),
+    quantity DECIMAL(12, 4),
+    installment_group_id UUID, 
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date);
+CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions(user_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_group_id ON transactions(installment_group_id);

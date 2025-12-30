@@ -2,17 +2,14 @@ import pool from './index.js';
 
 /**
  * Função auxiliar para gerar datas relativas a hoje.
- * @param {number} monthsAgo - Quantos meses subtrair de hoje.
- * @param {number} day - O dia específico do mês desejado.
  */
 const getRelativeDate = (monthsAgo: number, day: number) => {
   const d = new Date();
-  d.setDate(1); // Primeiro reseta para o dia 1
+  d.setDate(1); 
   d.setMonth(d.getMonth() - monthsAgo);
   
-  // Verifica qual o último dia do mês alvo
   const lastDayOfMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-  d.setDate(Math.min(day, lastDayOfMonth)); // Garante que não passe do limite do mês
+  d.setDate(Math.min(day, lastDayOfMonth));
   
   return d.toISOString().split('T')[0];
 };
@@ -20,8 +17,12 @@ const getRelativeDate = (monthsAgo: number, day: number) => {
 const generateTransactions = () => {
   const transactions = [];
   const monthsToSeed = 14;
+  
+  // Patrimônio inicial para cálculos de dividendos
+  let cumulativeInvestments = 1500.00; 
 
-  for (let i = 0; i <= monthsToSeed; i++) {
+  for (let i = monthsToSeed; i >= 0; i--) {
+    
     // --- ENTRADAS MENSAIS ---
     transactions.push(
       { user: 'Gabriel', cat: 'Salário', pay: 'Pix', desc: 'Salário Mensal', val: 5200.00, type: 'INCOME', date: getRelativeDate(i, 28) },
@@ -30,10 +31,35 @@ const generateTransactions = () => {
 
     // --- INVESTIMENTOS ---
     if (i % 2 === 0) {
-      transactions.push({ user: 'Gabriel', cat: 'Investimentos - Aporte', pay: 'Transferência', desc: 'Aporte Mensal Bolsa', val: 1000.00, type: 'EXPENSE', date: getRelativeDate(i, 5) });
+      const val = 1000.00;
+      transactions.push({ 
+        user: 'Gabriel', cat: 'Investimentos - Aporte', pay: 'Transferência', 
+        desc: 'Compra PETR4', val: val, type: 'EXPENSE', date: getRelativeDate(i, 5),
+        asset: 'PETR4', qty: 25 
+      });
+      cumulativeInvestments += val;
     } else {
-      transactions.push({ user: 'Klara', cat: 'Investimentos - Aporte', pay: 'Transferência', desc: 'Aporte Tesouro', val: 800.00, type: 'EXPENSE', date: getRelativeDate(i, 5) });
+      const val = 800.00;
+      transactions.push({ 
+        user: 'Klara', cat: 'Investimentos - Aporte', pay: 'Transferência', 
+        desc: 'Aporte MXRF11', val: val, type: 'EXPENSE', date: getRelativeDate(i, 5),
+        asset: 'MXRF11', qty: 80 
+      });
+      cumulativeInvestments += val;
     }
+
+    // --- DIVIDENDOS (Associados aos ativos) ---
+    const dividendVal = cumulativeInvestments * 0.01;
+    transactions.push({ 
+      user: i % 2 === 0 ? 'Gabriel' : 'Klara', 
+      cat: 'Investimentos - Dividendos',
+      pay: 'Saldo Corretora', 
+      desc: 'Dividendos', 
+      val: dividendVal, 
+      type: 'INCOME', 
+      date: getRelativeDate(i, 15),
+      asset: i % 2 === 0 ? 'PETR4' : 'MXRF11'
+    });
 
     // --- CUSTOS FIXOS ---
     transactions.push(
@@ -48,22 +74,38 @@ const generateTransactions = () => {
       { user: 'Gabriel', cat: 'Supermercado', pay: 'Crédito', desc: 'Compras do Mês', val: 600 + Math.random() * 300, type: 'EXPENSE', date: getRelativeDate(i, 7) },
       { user: 'Klara', cat: 'Farmácia', pay: 'Débito', desc: 'Itens de Higiene', val: 40 + Math.random() * 80, type: 'EXPENSE', date: getRelativeDate(i, 15) },
       { user: 'Gabriel', cat: 'Transporte Público/App', pay: 'Crédito', desc: 'Uber Semana', val: 25 + Math.random() * 60, type: 'EXPENSE', date: getRelativeDate(i, 18) },
-      { user: 'Gabriel', cat: 'Restaurante', pay: 'Crédito', desc: 'Jantar Final de Semana', val: 80 + Math.random() * 100, type: 'EXPENSE', date: getRelativeDate(i, 22) }
+      { user: 'Gabriel', cat: 'Restaurante', pay: 'Crédito', desc: 'Jantar Final de Semana', val: 80 + Math.random() * 100, type: 'EXPENSE', date: getRelativeDate(i, 22) },
+      { user: 'Klara', cat: 'Lanches/Cafés', pay: 'Pix', desc: 'Cafeteria', val: 15 + Math.random() * 30, type: 'EXPENSE', date: getRelativeDate(i, i % 28) }
     );
 
-    // --- RESGATES DE INVESTIMENTO ---
-    if (i === 0) { // Mês Atual
-      transactions.push({ user: 'Gabriel', cat: 'Investimentos - Resgate', pay: 'Saldo Corretora', desc: 'Resgate para Viagem', val: 3500.00, type: 'INCOME', date: getRelativeDate(i, 20) });
+    // --- RESGATES ---
+    if (i === 0) { 
+      const resVal = 3500.00;
+      transactions.push({ 
+        user: 'Gabriel', cat: 'Investimentos - Resgate', pay: 'Saldo Corretora', 
+        desc: 'Venda PETR4', val: resVal, type: 'INCOME', date: getRelativeDate(i, 20),
+        asset: 'PETR4', qty: 10 
+      });
+      cumulativeInvestments -= resVal;
     }
-    if (i === 6) { // 6 Meses atrás
-      transactions.push({ user: 'Klara', cat: 'Investimentos - Resgate', pay: 'Saldo Corretora', desc: 'Resgate Reserva Emergência', val: 1500.00, type: 'INCOME', date: getRelativeDate(i, 10) });
+    if (i === 6) {
+      const resVal = 1500.00;
+      transactions.push({ 
+        user: 'Klara', cat: 'Investimentos - Resgate', pay: 'Saldo Corretora', 
+        desc: 'Resgate MXRF11', val: resVal, type: 'INCOME', date: getRelativeDate(i, 10),
+        asset: 'MXRF11', qty: 150 
+      });
+      cumulativeInvestments -= resVal;
     }
 
     // --- SAZONALIDADE ---
     const targetMonth = new Date();
     targetMonth.setMonth(targetMonth.getMonth() - i);
-    if (targetMonth.getMonth() === 0) { // 0 = Janeiro
-      transactions.push({ user: 'Gabriel', cat: 'IPVA/Licenciamento', pay: 'Pix', desc: 'IPVA Anual', val: 2400.00, type: 'EXPENSE', date: getRelativeDate(i, 12) });
+    if (targetMonth.getMonth() === 0) {
+      transactions.push({ 
+        user: 'Gabriel', cat: 'IPVA/Licenciamento', pay: 'Pix', 
+        desc: 'IPVA Anual', val: 2400.00, type: 'EXPENSE', date: getRelativeDate(i, 12) 
+      });
     }
   }
   return transactions;
@@ -71,60 +113,69 @@ const generateTransactions = () => {
 
 async function seed() {
   const client = await pool.connect();
-  const demoUsers = [
-    { name: "Gabriel", color: "#1976d2" },
-    { name: "Klara", color: "#a30d41" }
-  ];
+  const demoUsers = [{ name: "Gabriel", color: "#1976d2" }, { name: "Klara", color: "#a30d41" }];
+  const demoAssets = ["PETR4", "MXRF11", "VALE3", "ITUB4", "CDB BANCO X"];
 
   try {
     await client.query('BEGIN');
 
-    // Inserir/Mapear Usuários
-    const userMap = {};
+    // Upsert de Usuários
+    const userMap: any = {};
     for (const u of demoUsers) {
       const res = await client.query(
-        'INSERT INTO users (name, color) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET color = EXCLUDED.color RETURNING id',
+        'INSERT INTO users (name, color) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET color = EXCLUDED.color RETURNING id', 
         [u.name, u.color]
       );
       userMap[u.name] = res.rows[0].id;
     }
 
-    // Mapear Categorias e Métodos
+    // Upsert de Ativos
+    const assetMap: any = {};
+    for (const ticker of demoAssets) {
+      const res = await client.query(
+        'INSERT INTO assets (ticker) VALUES ($1) ON CONFLICT (ticker) DO UPDATE SET ticker = EXCLUDED.ticker RETURNING id', 
+        [ticker]
+      );
+      assetMap[ticker] = res.rows[0].id;
+    }
+
+    // Mapeamento de Categorias e Métodos
     const catRows = await client.query('SELECT id, name FROM categories');
-    const catMap = {};
-    catRows.rows.forEach(row => catMap[row.name] = row.id);
+    const catMap: any = {};
+    catRows.rows.forEach((row: any) => catMap[row.name] = row.id);
 
     const methodRows = await client.query('SELECT id, name FROM payment_methods');
-    const methodMap = {};
-    methodRows.rows.forEach(row => methodMap[row.name] = row.id);
+    const methodMap: any = {};
+    methodRows.rows.forEach((row: any) => methodMap[row.name] = row.id);
 
-    // Gerar e Inserir Transações
-    const dynamicTransactions = generateTransactions();
-    console.log(">>> Populando banco com dados de exemplo...");
-    
+    console.log(">>> Limpando transações antigas...");
     await client.query('DELETE FROM transactions');
 
-    for (const t of dynamicTransactions) {
+    const dynamicTransactions = generateTransactions();
+    console.log(`>>> Inserindo ${dynamicTransactions.length} registros...`);
+
+    for (const t of dynamicTransactions as any[]) {
       const categoryId = catMap[t.cat];
       const methodId = methodMap[t.pay];
+      const assetId = t.asset ? assetMap[t.asset] : null;
 
       if (!categoryId || !methodId) {
-        console.warn(`Aviso: Categoria "${t.cat}" ou Método "${t.pay}" não encontrados. Pulando registro.`);
+        console.warn(`Pulado: ${t.cat} ou ${t.pay} não encontrados.`);
         continue;
       }
 
       await client.query(
-        `INSERT INTO transactions (description, amount, type, user_id, category_id, payment_method_id, date) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [t.desc, t.val, t.type, userMap[t.user], categoryId, methodId, t.date]
+        `INSERT INTO transactions (description, amount, type, user_id, category_id, payment_method_id, date, asset_id, quantity) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [t.desc, t.val, t.type, userMap[t.user], categoryId, methodId, t.date, assetId, t.qty || null]
       );
     }
 
     await client.query('COMMIT');
-    console.log(">>> Seed de exemplo concluído!");
+    console.log(`>>> Seed concluído com sucesso!`);
   } catch (e) {
     await client.query('ROLLBACK');
-    console.error(">>> Erro no seed:", e);
+    console.error(">>> Erro durante o seed:", e);
   } finally {
     client.release();
     process.exit();

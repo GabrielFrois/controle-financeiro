@@ -1,7 +1,8 @@
-import express, { Request, Response } from 'express';
+import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { query } from './database/index.js';
+import { randomUUID } from 'crypto';
 
 dotenv.config();
 
@@ -12,7 +13,7 @@ app.use(cors());
 app.use(express.json());
 
 // --- Rota: Diagnóstico ---
-app.get('/health', async (req: Request, res: Response) => {
+app.get('/health', async (req, res) => {
   try {
     const result = await query('SELECT NOW()');
     res.json({ status: 'OK', database_time: result.rows[0].now });
@@ -23,8 +24,7 @@ app.get('/health', async (req: Request, res: Response) => {
 
 // --- Rotas: Usuários ---
 
-// Listar usuários
-app.get('/users', async (req: Request, res: Response) => {
+app.get('/users', async (req, res) => {
   try {
     const result = await query('SELECT * FROM users ORDER BY active DESC, name ASC');
     res.json(result.rows);
@@ -33,8 +33,7 @@ app.get('/users', async (req: Request, res: Response) => {
   }
 });
 
-// Criar usuário
-app.post('/users', async (req: Request, res: Response) => {
+app.post('/users', async (req, res) => {
   const { name, color } = req.body;
   if (!name) return res.status(400).json({ error: 'O nome é obrigatório.' });
   try {
@@ -46,8 +45,7 @@ app.post('/users', async (req: Request, res: Response) => {
   }
 });
 
-// Editar usuário
-app.put('/users/:id', async (req: Request, res: Response) => {
+app.put('/users/:id', async (req, res) => {
   const { id } = req.params;
   const { name, color, active } = req.body;
   try {
@@ -59,8 +57,7 @@ app.put('/users/:id', async (req: Request, res: Response) => {
   }
 });
 
-// Soft Delete de usuário
-app.delete('/users/:id', async (req: Request, res: Response) => {
+app.delete('/users/:id', async (req, res) => {
   const { id } = req.params;
   try {
     await query('UPDATE users SET active = FALSE WHERE id = $1', [id]);
@@ -72,8 +69,7 @@ app.delete('/users/:id', async (req: Request, res: Response) => {
 
 // --- Rotas: Categorias ---
 
-// Listar categorias
-app.get('/categories', async (req: Request, res: Response) => {
+app.get('/categories', async (req, res) => {
   try {
     const result = await query('SELECT * FROM categories ORDER BY active DESC, name ASC');
     res.json(result.rows);
@@ -82,8 +78,7 @@ app.get('/categories', async (req: Request, res: Response) => {
   }
 });
 
-// Criar categoria
-app.post('/categories', async (req: Request, res: Response) => {
+app.post('/categories', async (req, res) => {
   const { name, type, color } = req.body;
   if (!name || !type) return res.status(400).json({ error: 'Nome e tipo são obrigatórios.' });
   try {
@@ -95,8 +90,7 @@ app.post('/categories', async (req: Request, res: Response) => {
   }
 });
 
-// Editar categoria
-app.put('/categories/:id', async (req: Request, res: Response) => {
+app.put('/categories/:id', async (req, res) => {
   const { id } = req.params;
   const { name, type, color, active } = req.body;
   try {
@@ -108,8 +102,7 @@ app.put('/categories/:id', async (req: Request, res: Response) => {
   }
 });
 
-// Soft Delete de categoria
-app.delete('/categories/:id', async (req: Request, res: Response) => {
+app.delete('/categories/:id', async (req, res) => {
   const { id } = req.params;
   try {
     await query('UPDATE categories SET active = FALSE WHERE id = $1', [id]);
@@ -120,7 +113,7 @@ app.delete('/categories/:id', async (req: Request, res: Response) => {
 });
 
 // --- Rotas: Métodos de Pagamento ---
-app.get('/payment-methods', async (req: Request, res: Response) => {
+app.get('/payment-methods', async (req, res) => {
   try {
     const result = await query('SELECT * FROM payment_methods ORDER BY name ASC');
     res.json(result.rows);
@@ -132,7 +125,7 @@ app.get('/payment-methods', async (req: Request, res: Response) => {
 // --- Rotas: Transações ---
 
 // Listar Transações
-app.get('/transactions', async (req: Request, res: Response) => {
+app.get('/transactions', async (req, res) => {
   try {
     const sql = `
       SELECT 
@@ -156,27 +149,79 @@ app.get('/transactions', async (req: Request, res: Response) => {
 });
 
 // Criar Transação
-app.post('/transactions', async (req: Request, res: Response) => {
-  const { description, amount, type, category_id, user_id, date, payment_method_id } = req.body;
+app.post('/transactions', async (req, res) => {
+  const { 
+    description, amount, type, category_id, user_id, 
+    date, payment_method_id, installments, asset_ticker, quantity
+  } = req.body;
+
   if (!description || !amount || !type || !category_id || !user_id || !date || !payment_method_id) {
     return res.status(400).json({ error: 'Preencha todos os campos obrigatórios.' });
   }
+
   try {
-    const sql = `
-      INSERT INTO transactions (description, amount, type, user_id, category_id, date, payment_method_id)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-      RETURNING *
-    `;
-    const values = [description, amount, type, user_id, category_id, date, payment_method_id];
-    const result = await query(sql, values);
-    res.status(201).json(result.rows[0]);
+    let assetId = null;
+    if (asset_ticker && asset_ticker.trim() !== '') {
+      const tickerUpper = asset_ticker.trim().toUpperCase();
+      const assetResult = await query(
+        `INSERT INTO assets (ticker) VALUES ($1) ON CONFLICT (ticker) DO UPDATE SET ticker = EXCLUDED.ticker RETURNING id`,
+        [tickerUpper]
+      );
+      assetId = assetResult.rows[0].id;
+    }
+
+    const numInstallments = parseInt(installments) || 1;
+    const installmentValue = parseFloat(amount) / numInstallments;
+    const baseDate = new Date(date);
+    
+    // Gera ID de grupo se tiver mais de uma parcela
+    const groupId = numInstallments > 1 ? randomUUID() : null;
+
+    const createdTransactions = [];
+
+    for (let i = 0; i < numInstallments; i++) {
+      const currentLabel = numInstallments > 1 ? ` (${i + 1}/${numInstallments})` : '';
+      const installmentDate = new Date(baseDate);
+      installmentDate.setUTCDate(1); 
+      installmentDate.setUTCMonth(baseDate.getUTCMonth() + i);
+      const lastDay = new Date(Date.UTC(installmentDate.getUTCFullYear(), installmentDate.getUTCMonth() + 1, 0)).getUTCDate();
+      installmentDate.setUTCDate(Math.min(baseDate.getUTCDate(), lastDay));
+
+      const sql = `
+        INSERT INTO transactions (
+          description, amount, type, user_id, category_id, 
+          date, payment_method_id, asset_id, quantity, installment_group_id
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        RETURNING *
+      `;
+      
+      const values = [
+        `${description}${currentLabel}`, 
+        installmentValue, 
+        type, 
+        user_id, 
+        category_id, 
+        installmentDate.toISOString().split('T')[0], 
+        payment_method_id,
+        assetId,
+        quantity ? parseFloat(quantity) : null,
+        groupId // Salva o mesmo ID em todas as parcelas
+      ];
+
+      const result = await query(sql, values);
+      createdTransactions.push(result.rows[0]);
+    }
+
+    res.status(201).json(createdTransactions[0]);
   } catch (err) {
+    console.error("Erro ao salvar transação:", err);
     res.status(500).json({ error: 'Erro ao salvar transação' });
   }
 });
 
 // Editar Transação
-app.put('/transactions/:id', async (req: Request, res: Response) => {
+app.put('/transactions/:id', async (req, res) => {
   const { id } = req.params;
   const { description, amount, type, category_id, date, payment_method_id } = req.body;
   try {
@@ -194,8 +239,21 @@ app.put('/transactions/:id', async (req: Request, res: Response) => {
   }
 });
 
-// Deletar Transação
-app.delete('/transactions/:id', async (req: Request, res: Response) => {
+// --- NOVAS ROTAS DE EXCLUSÃO ---
+
+// Deletar Grupo Inteiro (Compras Parceladas)
+app.delete('/transactions/group/:groupId', async (req, res) => {
+  const { groupId } = req.params;
+  try {
+    await query('DELETE FROM transactions WHERE installment_group_id = $1', [groupId]);
+    res.status(204).send();
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao deletar grupo de parcelas' });
+  }
+});
+
+// Deletar Transação Individual
+app.delete('/transactions/:id', async (req, res) => {
   const { id } = req.params;
   try {
     await query('DELETE FROM transactions WHERE id = $1', [id]);
@@ -205,19 +263,26 @@ app.delete('/transactions/:id', async (req: Request, res: Response) => {
   }
 });
 
-// --- Rota: Dashboard ---
-app.get('/summary', async (req: Request, res: Response) => {
+// --- Resto das Rotas ---
+
+app.get('/assets', async (req, res) => {
+  try {
+    const result = await query('SELECT * FROM assets ORDER BY ticker ASC');
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao buscar ativos' });
+  }
+});
+
+app.get('/summary', async (req, res) => {
   const { month, year } = req.query;
-  
   let sql = `
     SELECT 
       SUM(CASE WHEN type = 'INCOME' THEN amount ELSE 0 END) as total_income,
       SUM(CASE WHEN type = 'EXPENSE' THEN amount ELSE 0 END) as total_expense
     FROM transactions
   `;
-  
   const values = [];
-  
   if (month && year) {
     sql += ` WHERE EXTRACT(MONTH FROM date) = $1 AND EXTRACT(YEAR FROM date) = $2`;
     values.push(month, year);

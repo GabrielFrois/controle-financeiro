@@ -4,7 +4,7 @@ import { ThemeProvider, createTheme, CssBaseline, Box } from '@mui/material';
 import Sidebar from './components/Sidebar';
 import Dashboard from './pages/Dashboard';
 import Transactions from './pages/Transactions';
-//import Investments from './pages/Investments';
+// import Investments from './pages/Investments';
 import Management from './pages/Manegements';
 //import Budgets from './pages/Budgets';
 //import Reports from './pages/Reports';
@@ -33,7 +33,7 @@ function App() {
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/transactions" element={<Transactions />} />
-              {/* <Route path="/investments" element={<Investments />} /> */}
+              {/*<Route path="/investments" element={<Investments />} /> */}
               <Route path="/management" element={<Management />} />
               {/* <Route path="/budgets" element={<Budgets />} /> */}
               {/* <Route path="/reports" element={<Reports />} /> */}

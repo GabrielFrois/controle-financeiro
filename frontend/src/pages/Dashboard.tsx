@@ -21,6 +21,7 @@ export default function Dashboard() {
   const [viewMode, setViewMode] = useState<'month' | 'year' | 'all'>('month');
   
   const [summary, setSummary] = useState({ income: 0, expense: 0, balance: 0 });
+  const [totalBalance, setTotalBalance] = useState(0);
   const [patrimonio, setPatrimonio] = useState(0);
   const [categoryData, setCategoryData] = useState<any[]>([]);
   const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
@@ -39,73 +40,81 @@ export default function Dashboard() {
   };
 
   const fetchData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const now = new Date();
-      const currentMonth = now.getUTCMonth() + 1;
-      const currentYear = now.getUTCFullYear();
+  setLoading(true);
+  try {
+    const now = new Date();
+    const currentMonth = now.getUTCMonth() + 1;
+    const currentYear = now.getUTCFullYear();
+    const todayStr = now.toISOString().split('T')[0]; // Data de hoje para o Saldo
 
-      // Define a URL baseada no filtro selecionado
-      let summaryUrl = '/summary';
-      if (viewMode === 'month') {
-        summaryUrl = `/summary?month=${currentMonth}&year=${currentYear}`;
-      } else if (viewMode === 'year') {
-        summaryUrl = `/summary?year=${currentYear}`;
-      }
-
-      const [sumRes, transRes] = await Promise.all([
-        api.get(summaryUrl),
-        api.get('/transactions')
-      ]);
-
-      setSummary(sumRes.data);
-      const allTransactions = transRes.data;
-
-      // Cálculo do Patrimônio
-      const totalAportes = allTransactions
-        .filter((t: any) => t.category_name === 'Investimentos - Aporte')
-        .reduce((acc: any, curr: any) => acc + parseFloat(curr.amount), 0);
-      const totalResgates = allTransactions
-        .filter((t: any) => t.category_name === 'Investimentos - Resgate')
-        .reduce((acc: any, curr: any) => acc + parseFloat(curr.amount), 0);
-      setPatrimonio(totalAportes - totalResgates);
-
-      // Filtragem local para os blocos visuais
-      let filteredTransactions = allTransactions;
-      
-      if (viewMode === 'month') {
-        filteredTransactions = allTransactions.filter((t: any) => {
-          const tDate = new Date(t.date);
-          return (tDate.getUTCMonth() + 1) === currentMonth && tDate.getUTCFullYear() === currentYear;
-        });
-      } else if (viewMode === 'year') {
-        filteredTransactions = allTransactions.filter((t: any) => {
-          const tDate = new Date(t.date);
-          return tDate.getUTCFullYear() === currentYear;
-        });
-      }
-
-      setRecentTransactions(filteredTransactions.slice(0, 5));
-
-      const expensesByCategory = filteredTransactions
-        .filter((t: any) => t.type === 'EXPENSE')
-        .reduce((acc: any, curr: any) => {
-          acc[curr.category_name] = (acc[curr.category_name] || 0) + parseFloat(curr.amount);
-          return acc;
-        }, {});
-
-      setCategoryData(
-        Object.keys(expensesByCategory)
-          .map(name => ({ name, value: expensesByCategory[name] }))
-          .sort((a, b) => b.value - a.value)
-      );
-
-    } catch (error) {
-      console.error("Erro no Dashboard:", error);
-    } finally {
-      setLoading(false);
+    // Define a URL baseada no filtro selecionado
+    let summaryUrl = '/summary';
+    if (viewMode === 'month') {
+      summaryUrl = `/summary?month=${currentMonth}&year=${currentYear}`;
+    } else if (viewMode === 'year') {
+      summaryUrl = `/summary?year=${currentYear}`;
     }
-  }, [viewMode]);
+
+    const [sumRes, transRes] = await Promise.all([
+      api.get(summaryUrl),
+      api.get('/transactions')
+    ]);
+
+    setSummary(sumRes.data);
+    const allTransactions = transRes.data;
+
+    // --- CÁLCULO DO SALDO ---
+    const accumulated = allTransactions
+      .filter((t: any) => t.date <= todayStr)
+      .reduce((acc: number, t: any) => 
+        t.type === 'INCOME' ? acc + parseFloat(t.amount) : acc - parseFloat(t.amount), 0
+      );
+    setTotalBalance(accumulated);
+
+    // Cálculo do Patrimônio
+    const totalAportes = allTransactions
+      .filter((t: any) => t.category_name === 'Investimentos - Aporte')
+      .reduce((acc: any, curr: any) => acc + parseFloat(curr.amount), 0);
+    const totalResgates = allTransactions
+      .filter((t: any) => t.category_name === 'Investimentos - Resgate')
+      .reduce((acc: any, curr: any) => acc + parseFloat(curr.amount), 0);
+    setPatrimonio(totalAportes - totalResgates);
+
+    // Filtragem local para os blocos visuais
+    let filteredTransactions = allTransactions;
+    if (viewMode === 'month') {
+      filteredTransactions = allTransactions.filter((t: any) => {
+        const tDate = new Date(t.date);
+        return (tDate.getUTCMonth() + 1) === currentMonth && tDate.getUTCFullYear() === currentYear;
+      });
+    } else if (viewMode === 'year') {
+      filteredTransactions = allTransactions.filter((t: any) => {
+        const tDate = new Date(t.date);
+        return tDate.getUTCFullYear() === currentYear;
+      });
+    }
+
+    setRecentTransactions(filteredTransactions.slice(0, 5));
+
+    const expensesByCategory = filteredTransactions
+      .filter((t: any) => t.type === 'EXPENSE')
+      .reduce((acc: any, curr: any) => {
+        acc[curr.category_name] = (acc[curr.category_name] || 0) + parseFloat(curr.amount);
+        return acc;
+      }, {});
+
+    setCategoryData(
+      Object.keys(expensesByCategory)
+        .map(name => ({ name, value: expensesByCategory[name] }))
+        .sort((a, b) => b.value - a.value)
+    );
+
+  } catch (error) {
+    console.error("Erro no Dashboard:", error);
+  } finally {
+    setLoading(false);
+  }
+}, [viewMode]);
 
   useEffect(() => {
     fetchData();
@@ -160,7 +169,7 @@ export default function Dashboard() {
       {/* Cards KPI */}
       <Grid container spacing={2} sx={{ mb: 5 }} justifyContent="center">
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <KPICard title="Saldo" value={formatCurrency(summary.balance)} icon={<AccountBalanceWallet />} color={theme.palette.primary.main} />
+          <KPICard title="Saldo" value={formatCurrency(totalBalance)} icon={<AccountBalanceWallet />} color={theme.palette.primary.main} />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <KPICard title="Receitas" value={formatCurrency(summary.income)} icon={<TrendingUp />} color={theme.palette.success.main} />

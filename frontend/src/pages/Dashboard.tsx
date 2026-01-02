@@ -129,7 +129,7 @@ export default function Dashboard() {
   );
 
   return (
-    <Box sx={{ p: 2, width: '100%', maxWidth: '1200px', margin: '0 auto' }}>
+    <Box sx={{ pt: 7, px: 2, pb: 2, maxWidth: '1200px', margin: '0 auto' }}>
       
       {/* Filtro Centralizado */}
       <Box sx={{ display: 'flex', justifyContent: 'center', mb: 5 }}>

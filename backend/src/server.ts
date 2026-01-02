@@ -134,11 +134,13 @@ app.get('/transactions', async (req, res) => {
         COALESCE(u.color, '#9e9e9e') as user_color, 
         COALESCE(c.name, 'Inativa') as category_name, 
         COALESCE(c.color, '#9e9e9e') as category_color, 
-        COALESCE(p.name, 'Pix') as payment_method_name 
+        COALESCE(p.name, 'Pix') as payment_method_name,
+        a.ticker as asset_ticker
       FROM transactions t
       LEFT JOIN users u ON t.user_id = u.id
       LEFT JOIN categories c ON t.category_id = c.id
       LEFT JOIN payment_methods p ON t.payment_method_id = p.id
+      LEFT JOIN assets a ON t.asset_id = a.id
       ORDER BY t.date DESC, t.id DESC;
     `;
     const result = await query(sql);
@@ -239,9 +241,52 @@ app.put('/transactions/:id', async (req, res) => {
   }
 });
 
+// Editar Grupo de Transações (Parcelas)
+app.put('/transactions/group/:groupId', async (req, res) => {
+  const { groupId } = req.params;
+  const { description, amount, type, category_id, user_id, payment_method_id, referer_date } = req.body;
+
+  try {
+    // Atualizamos apenas a descrição, valor, tipo e categoria. 
+    // A data individual de cada parcela costuma ser mantida para não quebrar o cronograma.
+    const sql = `
+      UPDATE transactions 
+      SET description = $1, amount = $2, type = $3, category_id = $4, user_id = $5, payment_method_id = $6
+      WHERE installment_group_id = $7 AND date >= $8
+      RETURNING *
+    `;
+    const values = [description, amount, type, category_id, user_id, payment_method_id, groupId, referer_date];
+    const result = await query(sql, values);
+    
+    res.json({ message: `${result.rowCount} parcelas atualizadas com sucesso.`, data: result.rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao atualizar grupo de parcelas' });
+  }
+});
+
+// --- Rota de edição individual
+app.put('/transactions/:id', async (req, res) => {
+  const { id } = req.params;
+  const { description, amount, type, category_id, user_id, date, payment_method_id } = req.body;
+  try {
+    const sql = `
+      UPDATE transactions 
+      SET description = $1, amount = $2, type = $3, category_id = $4, user_id = $5, date = $6, payment_method_id = $7
+      WHERE id = $8
+      RETURNING *
+    `;
+    const values = [description, amount, type, category_id, user_id, date, payment_method_id, id];
+    const result = await query(sql, values);
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao atualizar transação' });
+  }
+});
+
 // --- NOVAS ROTAS DE EXCLUSÃO ---
 
-// Deletar Grupo Inteiro (Compras Parceladas)
+// Deletar Grupo Inteiro
 app.delete('/transactions/group/:groupId', async (req, res) => {
   const { groupId } = req.params;
   try {

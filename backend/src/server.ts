@@ -23,7 +23,6 @@ app.get('/health', async (req, res) => {
 });
 
 // --- Rotas: Usuários ---
-
 app.get('/users', async (req, res) => {
   try {
     const result = await query('SELECT * FROM users ORDER BY active DESC, name ASC');
@@ -68,7 +67,6 @@ app.delete('/users/:id', async (req, res) => {
 });
 
 // --- Rotas: Categorias ---
-
 app.get('/categories', async (req, res) => {
   try {
     const result = await query('SELECT * FROM categories ORDER BY active DESC, name ASC');
@@ -154,7 +152,8 @@ app.get('/transactions', async (req, res) => {
 app.post('/transactions', async (req, res) => {
   const { 
     description, amount, type, category_id, user_id, 
-    date, payment_method_id, installments, asset_ticker, quantity
+    date, payment_method_id, installments, asset_ticker, quantity,
+    investment_type
   } = req.body;
 
   if (!description || !amount || !type || !category_id || !user_id || !date || !payment_method_id) {
@@ -175,8 +174,6 @@ app.post('/transactions', async (req, res) => {
     const numInstallments = parseInt(installments) || 1;
     const installmentValue = parseFloat(amount) / numInstallments;
     const baseDate = new Date(date);
-    
-    // Gera ID de grupo se tiver mais de uma parcela
     const groupId = numInstallments > 1 ? randomUUID() : null;
 
     const createdTransactions = [];
@@ -192,9 +189,10 @@ app.post('/transactions', async (req, res) => {
       const sql = `
         INSERT INTO transactions (
           description, amount, type, user_id, category_id, 
-          date, payment_method_id, asset_id, quantity, installment_group_id
+          date, payment_method_id, asset_id, quantity, installment_group_id,
+          investment_type -- <-- Novo campo
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         RETURNING *
       `;
       
@@ -208,7 +206,8 @@ app.post('/transactions', async (req, res) => {
         payment_method_id,
         assetId,
         quantity ? parseFloat(quantity) : null,
-        groupId // Salva o mesmo ID em todas as parcelas
+        groupId,
+        investment_type || 'OUTROS'
       ];
 
       const result = await query(sql, values);
@@ -222,18 +221,23 @@ app.post('/transactions', async (req, res) => {
   }
 });
 
-// Editar Transação
+// Editar Transação Individual
 app.put('/transactions/:id', async (req, res) => {
   const { id } = req.params;
-  const { description, amount, type, category_id, date, payment_method_id } = req.body;
+  const { 
+    description, amount, type, category_id, user_id, 
+    date, payment_method_id, investment_type 
+  } = req.body;
+
   try {
     const sql = `
       UPDATE transactions 
-      SET description = $1, amount = $2, type = $3, category_id = $4, date = $5, payment_method_id = $6
-      WHERE id = $7
+      SET description = $1, amount = $2, type = $3, category_id = $4, 
+          user_id = $5, date = $6, payment_method_id = $7, investment_type = $8
+      WHERE id = $9
       RETURNING *
     `;
-    const values = [description, amount, type, category_id, date, payment_method_id, id];
+    const values = [description, amount, type, category_id, user_id, date, payment_method_id, investment_type || 'OUTROS', id];
     const result = await query(sql, values);
     res.json(result.rows[0]);
   } catch (err) {
@@ -244,18 +248,20 @@ app.put('/transactions/:id', async (req, res) => {
 // Editar Grupo de Transações (Parcelas)
 app.put('/transactions/group/:groupId', async (req, res) => {
   const { groupId } = req.params;
-  const { description, amount, type, category_id, user_id, payment_method_id, referer_date } = req.body;
+  const { 
+    description, amount, type, category_id, user_id, 
+    payment_method_id, referer_date, investment_type 
+  } = req.body;
 
   try {
-    // Atualizamos apenas a descrição, valor, tipo e categoria. 
-    // A data individual de cada parcela costuma ser mantida para não quebrar o cronograma.
     const sql = `
       UPDATE transactions 
-      SET description = $1, amount = $2, type = $3, category_id = $4, user_id = $5, payment_method_id = $6
-      WHERE installment_group_id = $7 AND date >= $8
+      SET description = $1, amount = $2, type = $3, category_id = $4, 
+          user_id = $5, payment_method_id = $6, investment_type = $7
+      WHERE installment_group_id = $8 AND date >= $9
       RETURNING *
     `;
-    const values = [description, amount, type, category_id, user_id, payment_method_id, groupId, referer_date];
+    const values = [description, amount, type, category_id, user_id, payment_method_id, investment_type || 'OUTROS', groupId, referer_date];
     const result = await query(sql, values);
     
     res.json({ message: `${result.rowCount} parcelas atualizadas com sucesso.`, data: result.rows });
@@ -265,28 +271,7 @@ app.put('/transactions/group/:groupId', async (req, res) => {
   }
 });
 
-// --- Rota de edição individual
-app.put('/transactions/:id', async (req, res) => {
-  const { id } = req.params;
-  const { description, amount, type, category_id, user_id, date, payment_method_id } = req.body;
-  try {
-    const sql = `
-      UPDATE transactions 
-      SET description = $1, amount = $2, type = $3, category_id = $4, user_id = $5, date = $6, payment_method_id = $7
-      WHERE id = $8
-      RETURNING *
-    `;
-    const values = [description, amount, type, category_id, user_id, date, payment_method_id, id];
-    const result = await query(sql, values);
-    res.json(result.rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: 'Erro ao atualizar transação' });
-  }
-});
-
-// --- NOVAS ROTAS DE EXCLUSÃO ---
-
-// Deletar Grupo Inteiro
+// --- ROTAS DE EXCLUSÃO ---
 app.delete('/transactions/group/:groupId', async (req, res) => {
   const { groupId } = req.params;
   try {
@@ -297,7 +282,6 @@ app.delete('/transactions/group/:groupId', async (req, res) => {
   }
 });
 
-// Deletar Transação Individual
 app.delete('/transactions/:id', async (req, res) => {
   const { id } = req.params;
   try {
@@ -309,7 +293,6 @@ app.delete('/transactions/:id', async (req, res) => {
 });
 
 // --- Resto das Rotas ---
-
 app.get('/assets', async (req, res) => {
   try {
     const result = await query('SELECT * FROM assets ORDER BY ticker ASC');

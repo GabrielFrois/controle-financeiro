@@ -79,6 +79,7 @@ const categories = [
 
   // DESPESAS - FINANCEIRO (Tons de Cinza Azulado e Roxo Escuro)
   { name: "Investimentos - Aporte", type: "EXPENSE", color: "#6A1B9A" },
+  { name: "Investimentos - Reinvestimento", type: "EXPENSE", color: "#673AB7" },
   { name: "Tarifas Bancárias", type: "EXPENSE", color: "#455A64" },
   { name: "Juros/Empréstimos", type: "EXPENSE", color: "#607D8B" },
   { name: "Seguro de Vida", type: "EXPENSE", color: "#78909C" },

@@ -7,7 +7,8 @@ import {
 } from '@mui/material';
 import { 
   TrendingUp, TrendingDown, AccountBalance, Stars, 
-  PieChart as PieIcon, Timeline, QueryStats, BarChart as BarIcon
+  PieChart as PieIcon, Timeline, QueryStats, BarChart as BarIcon,
+  EmojiEvents
 } from '@mui/icons-material';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area, 
@@ -15,13 +16,17 @@ import {
 } from 'recharts';
 import api from '../services/api';
 
-// Slider com movimento suave
+// Slider com movimento suave - Corrigido para usar o theme e evitar erro de lint
 const SmoothSlider = styled(Slider)(({ theme }) => ({
   '& .MuiSlider-thumb': {
-    transition: 'left 0.1s ease-out, box-shadow 0.2s',
+    transition: theme.transitions.create(['left', 'box-shadow'], {
+      duration: theme.transitions.duration.shorter,
+    }),
   },
   '& .MuiSlider-track': {
-    transition: 'width 0.1s ease-out',
+    transition: theme.transitions.create(['width'], {
+      duration: theme.transitions.duration.shorter,
+    }),
   },
 }));
 
@@ -67,7 +72,9 @@ export default function Investments() {
 
     const investTrans = filteredByUser.filter(t => t?.category_name?.toLowerCase().includes('investimento'));
     
-    const aportes = investTrans.filter(t => t.category_name.includes('Aporte')).reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
+    // NOVA LÓGICA DE SEPARAÇÃO
+    const aportesSalario = investTrans.filter(t => t.category_name === 'Investimentos - Aporte').reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
+    const reinvestimentos = investTrans.filter(t => t.category_name === 'Investimentos - Reinvestimento').reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
     const resgates = investTrans.filter(t => t.category_name.includes('Resgate')).reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
     const dividendos = investTrans.filter(t => t.category_name.includes('Dividendos')).reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
 
@@ -76,14 +83,21 @@ export default function Investments() {
       if (!acc[ticker]) acc[ticker] = { ticker, quantity: 0, totalAmount: 0 };
       const q = Number(t.quantity || 0);
       const a = Number(t.amount || 0);
-      if (t.category_name.includes('Aporte')) { acc[ticker].quantity += q; acc[ticker].totalAmount += a; }
-      else if (t.category_name.includes('Resgate')) { acc[ticker].quantity -= q; acc[ticker].totalAmount -= a; }
+      
+      // Aporte e Reinvestimento aumentam a custódia
+      if (t.category_name.includes('Aporte') || t.category_name.includes('Reinvestimento')) { 
+        acc[ticker].quantity += q; 
+        acc[ticker].totalAmount += a; 
+      }
+      else if (t.category_name.includes('Resgate')) { 
+        acc[ticker].quantity -= q; 
+        acc[ticker].totalAmount -= a; 
+      }
       return acc;
     }, {});
 
     const consolidatedPosition = Object.values(positionMap).filter((p: any) => p.quantity > 0);
     
-    // Ordenar por valor para que a legenda mostre os maiores
     const allocationData = consolidatedPosition
       .map((p: any) => ({ name: p.ticker, value: p.totalAmount }))
       .sort((a, b) => b.value - a.value);
@@ -94,11 +108,14 @@ export default function Investments() {
 
     sortedTrans.forEach(t => {
       const monthYear = t.date.substring(0, 7);
-      if (!monthlyMap[monthYear]) monthlyMap[monthYear] = { month: monthYear, dividendos: 0, patrimonio: 0 };
+      if (!monthlyMap[monthYear]) monthlyMap[monthYear] = { month: monthYear, dividendos: 0, patrimony: 0 };
       const val = Number(t.amount || 0);
-      if (t.category_name.includes('Aporte')) runningPatrimony += val;
+      
+      // Patrimônio sobe com dinheiro novo E reinvestimento
+      if (t.category_name.includes('Aporte') || t.category_name.includes('Reinvestimento')) runningPatrimony += val;
       if (t.category_name.includes('Resgate')) runningPatrimony -= val;
       if (t.category_name.includes('Dividendos')) monthlyMap[monthYear].dividendos += val;
+      
       monthlyMap[monthYear].patrimony = runningPatrimony;
     });
 
@@ -114,13 +131,14 @@ export default function Investments() {
     }
 
     return {
-      patrimonio: aportes - resgates,
-      aportes, resgates, dividendos,
+      patrimonioTotal: (aportesSalario + reinvestimentos) - resgates,
+      dinheiroDoBolso: aportesSalario - resgates,
+      dividendos,
       allocationData,
       consolidatedPosition,
       fullHistory
     };
-  }, [transactions, userFilter]);
+  }, [transactions, userFilter, startDiv, startPat]); // Adicionadas dependências para consistência
 
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}><CircularProgress /></Box>;
 
@@ -139,12 +157,12 @@ export default function Investments() {
         </TextField>
       </Box>
 
-      {/* Cards KPI */}
+      {/* Cards KPI - Layout Original Mantido */}
       <Grid container spacing={2} sx={{ mb: 5 }} justifyContent="center">
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}><KPICard title="Patrimônio" value={formatCurrency(stats.patrimonio)} icon={<AccountBalance />} color="#9c27b0" /></Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}><KPICard title="Total Aportado" value={formatCurrency(stats.aportes)} icon={<Stars />} color={theme.palette.primary.main} /></Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}><KPICard title="Dividendos" value={formatCurrency(stats.dividendos)} icon={<TrendingUp />} color={theme.palette.success.main} /></Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}><KPICard title="Resgates" value={formatCurrency(stats.resgates)} icon={<TrendingDown />} color={theme.palette.error.main} /></Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}><KPICard title="Patrimônio" value={formatCurrency(stats.patrimonioTotal)} icon={<AccountBalance />} color="#9c27b0" /></Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}><KPICard title="Dinheiro do Bolso" value={formatCurrency(stats.dinheiroDoBolso)} icon={<Stars />} color={theme.palette.primary.main} /></Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}><KPICard title="Total Proventos" value={formatCurrency(stats.dividendos)} icon={<TrendingUp />} color={theme.palette.success.main} /></Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}><KPICard title="Lucro/Crescimento" value={formatCurrency(stats.patrimonioTotal - stats.dinheiroDoBolso)} icon={<EmojiEvents />} color="#ff9800" /></Grid>
       </Grid>
 
       {tabValue === 0 ? (
@@ -172,7 +190,7 @@ export default function Investments() {
                        <Typography variant="body2" fontWeight="bold">{item.name}</Typography>
                      </Box>
                      <Typography variant="body2" fontWeight="900">
-                       {stats.patrimonio > 0 ? ((item.value / stats.patrimonio) * 100).toFixed(1) : 0}%
+                       {stats.patrimonioTotal > 0 ? ((item.value / stats.patrimonioTotal) * 100).toFixed(1) : 0}%
                      </Typography>
                    </Box>
                  ))}

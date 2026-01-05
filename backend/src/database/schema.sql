@@ -40,7 +40,17 @@ CREATE TABLE IF NOT EXISTS transactions (
     asset_id INTEGER REFERENCES assets(id),
     quantity DECIMAL(12, 4),
     installment_group_id UUID, 
+    investment_type VARCHAR(50) DEFAULT 'OUTROS',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS budgets (
+    id SERIAL PRIMARY KEY,
+    category_id INTEGER REFERENCES categories(id) ON DELETE CASCADE,
+    amount DECIMAL(10, 2) NOT NULL,
+    period VARCHAR(10) CHECK (period IN ('MONTHLY', 'YEARLY')) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(category_id, period)
 );
 
 CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date);

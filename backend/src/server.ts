@@ -271,7 +271,7 @@ app.put('/transactions/group/:groupId', async (req, res) => {
   }
 });
 
-// --- ROTAS DE EXCLUSÃO ---
+// Deletar Transação
 app.delete('/transactions/group/:groupId', async (req, res) => {
   const { groupId } = req.params;
   try {
@@ -289,6 +289,73 @@ app.delete('/transactions/:id', async (req, res) => {
     res.status(204).send();
   } catch (err) {
     res.status(500).json({ error: 'Erro ao deletar transação' });
+  }
+});
+
+// --- Rotas: Metas ---
+app.get('/budgets', async (req, res) => {
+  try {
+    const sql = `
+      SELECT b.*, c.name as category_name 
+      FROM budgets b 
+      JOIN categories c ON b.category_id = c.id
+      ORDER BY b.period DESC, c.name ASC
+    `;
+    const result = await query(sql);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao buscar metas' });
+  }
+});
+
+app.post('/budgets', async (req, res) => {
+  const { category_id, amount, period } = req.body;
+  try {
+    const sql = `
+      INSERT INTO budgets (category_id, amount, period) 
+      VALUES ($1, $2, $3) 
+      ON CONFLICT (category_id, period) 
+      DO UPDATE SET amount = EXCLUDED.amount 
+      RETURNING *
+    `;
+    const result = await query(sql, [category_id, amount, period]);
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao salvar meta' });
+  }
+});
+
+// Editar Meta
+app.put('/budgets/:id', async (req, res) => {
+  const { id } = req.params;
+  const { category_id, amount, period } = req.body;
+  try {
+    const sql = `
+      UPDATE budgets 
+      SET category_id = $1, amount = $2, period = $3 
+      WHERE id = $4 
+      RETURNING *
+    `;
+    const result = await query(sql, [category_id, amount, period, id]);
+    
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Meta não encontrada.' });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao atualizar meta' });
+  }
+});
+
+// Deletar meta
+app.delete('/budgets/:id', async (req, res) => {
+  try {
+    await query('DELETE FROM budgets WHERE id = $1', [req.params.id]);
+    res.status(204).send();
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao deletar meta' });
   }
 });
 

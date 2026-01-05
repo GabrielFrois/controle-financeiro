@@ -57,7 +57,8 @@ export default function Transactions() {
   const [form, setForm] = useState({
     description: '', amount: '', type: 'EXPENSE',
     category_id: '', user_id: '', date: new Date().toISOString().split('T')[0],
-    payment_method_id: '', installments: '1', asset_ticker: '', quantity: ''
+    payment_method_id: '', installments: '1', asset_ticker: '', quantity: '',
+    investment_type: 'OUTROS'
   });
 
   const fetchData = useCallback(async () => {
@@ -88,7 +89,11 @@ export default function Transactions() {
     setIsEditing(false);
     setEditingId(null);
     setEditAllFuture(false);
-    setForm({ description: '', amount: '', type: 'EXPENSE', category_id: '', user_id: '', date: new Date().toISOString().split('T')[0], payment_method_id: '', installments: '1', asset_ticker: '', quantity: '' });
+    setForm({ 
+      description: '', amount: '', type: 'EXPENSE', category_id: '', user_id: '', 
+      date: new Date().toISOString().split('T')[0], payment_method_id: '', installments: '1', 
+      asset_ticker: '', quantity: '', investment_type: 'OUTROS' 
+    });
     setOpen(true);
   };
 
@@ -106,7 +111,8 @@ export default function Transactions() {
       payment_method_id: t.payment_method_id,
       installments: '1',
       asset_ticker: t.asset_ticker || '',
-      quantity: t.quantity || ''
+      quantity: t.quantity || '',
+      investment_type: t.investment_type || 'OUTROS'
     });
     setOpen(true);
   };
@@ -386,8 +392,24 @@ export default function Transactions() {
               )}
               {isInvestmentForm && (
                 <Grid container spacing={2}>
-                  <Grid size={{ xs: 6 }}><TextField fullWidth label="Ticker (Ex: PETR4)" value={form.asset_ticker} onChange={(e) => setForm({...form, asset_ticker: e.target.value})} /></Grid>
-                  <Grid size={{ xs: 6 }}><TextField fullWidth type="number" label="Quantidade" value={form.quantity} onChange={(e) => setForm({...form, quantity: e.target.value})} /></Grid>
+                  <Grid item xs={12}>
+                    <TextField 
+                      select 
+                      fullWidth 
+                      label="Tipo de Ativo" 
+                      value={form.investment_type} 
+                      onChange={(e) => setForm({...form, investment_type: e.target.value})}
+                    >
+                      <MenuItem value="RENDA_FIXA">Renda Fixa</MenuItem>
+                      <MenuItem value="ACOES">Ações</MenuItem>
+                      <MenuItem value="FII">FIIs</MenuItem>
+                      <MenuItem value="CRIPTOS">Criptoativos</MenuItem>
+                      <MenuItem value="INTERNACIONAL">Internacional</MenuItem>
+                      <MenuItem value="OUTROS">Outros</MenuItem>
+                    </TextField>
+                  </Grid>
+                  <Grid item xs={6}><TextField fullWidth label="Ticker (Ex: PETR4)" value={form.asset_ticker} onChange={(e) => setForm({...form, asset_ticker: e.target.value})} /></Grid>
+                  <Grid item xs={6}><TextField fullWidth type="number" label="Quantidade" value={form.quantity} onChange={(e) => setForm({...form, quantity: e.target.value})} /></Grid>
                 </Grid>
               )}
             </Stack>

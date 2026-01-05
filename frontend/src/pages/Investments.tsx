@@ -16,7 +16,7 @@ import {
 } from 'recharts';
 import api from '../services/api';
 
-// Slider com movimento suave - Corrigido para usar o theme e evitar erro de lint
+// Slider dos gráficos
 const SmoothSlider = styled(Slider)(({ theme }) => ({
   '& .MuiSlider-thumb': {
     transition: theme.transitions.create(['left', 'box-shadow'], {
@@ -72,7 +72,6 @@ export default function Investments() {
 
     const investTrans = filteredByUser.filter(t => t?.category_name?.toLowerCase().includes('investimento'));
     
-    // NOVA LÓGICA DE SEPARAÇÃO
     const aportesSalario = investTrans.filter(t => t.category_name === 'Investimentos - Aporte').reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
     const reinvestimentos = investTrans.filter(t => t.category_name === 'Investimentos - Reinvestimento').reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
     const resgates = investTrans.filter(t => t.category_name.includes('Resgate')).reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
@@ -84,7 +83,7 @@ export default function Investments() {
       const q = Number(t.quantity || 0);
       const a = Number(t.amount || 0);
       
-      // Aporte e Reinvestimento aumentam a custódia
+      // Aporte e Reinvestimento
       if (t.category_name.includes('Aporte') || t.category_name.includes('Reinvestimento')) { 
         acc[ticker].quantity += q; 
         acc[ticker].totalAmount += a; 
@@ -110,8 +109,6 @@ export default function Investments() {
       const monthYear = t.date.substring(0, 7);
       if (!monthlyMap[monthYear]) monthlyMap[monthYear] = { month: monthYear, dividendos: 0, patrimony: 0 };
       const val = Number(t.amount || 0);
-      
-      // Patrimônio sobe com dinheiro novo E reinvestimento
       if (t.category_name.includes('Aporte') || t.category_name.includes('Reinvestimento')) runningPatrimony += val;
       if (t.category_name.includes('Resgate')) runningPatrimony -= val;
       if (t.category_name.includes('Dividendos')) monthlyMap[monthYear].dividendos += val;
@@ -138,7 +135,7 @@ export default function Investments() {
       consolidatedPosition,
       fullHistory
     };
-  }, [transactions, userFilter, startDiv, startPat]); // Adicionadas dependências para consistência
+  }, [transactions, userFilter, startDiv, startPat]);
 
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}><CircularProgress /></Box>;
 
@@ -157,7 +154,7 @@ export default function Investments() {
         </TextField>
       </Box>
 
-      {/* Cards KPI - Layout Original Mantido */}
+      {/* Cards KPI */}
       <Grid container spacing={2} sx={{ mb: 5 }} justifyContent="center">
         <Grid size={{ xs: 12, sm: 6, md: 3 }}><KPICard title="Patrimônio" value={formatCurrency(stats.patrimonioTotal)} icon={<AccountBalance />} color="#9c27b0" /></Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}><KPICard title="Dinheiro do Bolso" value={formatCurrency(stats.dinheiroDoBolso)} icon={<Stars />} color={theme.palette.primary.main} /></Grid>

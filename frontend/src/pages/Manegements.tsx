@@ -1,6 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Box, Typography, Grid, Paper, TextField, Button, IconButton, List, ListItem, ListItemText, Avatar, Stack, MenuItem, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
-import { Delete, Add, Person, Category, Edit } from '@mui/icons-material';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { 
+  Box, Typography, Grid, Paper, TextField, Button, IconButton, 
+  List, ListItem, ListItemText, Avatar, Stack, MenuItem, 
+  Dialog, DialogTitle, DialogContent, DialogActions, 
+  InputAdornment, Divider 
+} from '@mui/material';
+import { Delete, Add, Person, Category, Edit, Search } from '@mui/icons-material';
 import api from '../services/api';
 
 export default function Management() {
@@ -10,6 +15,7 @@ export default function Management() {
   const [newCat, setNewCat] = useState({ name: '', type: 'EXPENSE', color: '#9e9e9e' });
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
+  const [catSearch, setCatSearch] = useState('');
 
   const fetchData = useCallback(async () => {
     try {
@@ -21,13 +27,38 @@ export default function Management() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  const sortFunction = (a: any, b: any) => {
+    if (a.active === b.active) {
+      return a.name.localeCompare(b.name);
+    }
+    return a.active ? -1 : 1;
+  };
+
+  const sortedUsers = useMemo(() => [...users].sort(sortFunction), [users]);
+
+  const filteredAndSortedCategories = useMemo(() => {
+    return categories
+      .filter(c => c.name.toLowerCase().includes(catSearch.toLowerCase()))
+      .sort(sortFunction);
+  }, [categories, catSearch]);
+
   const handleAddUser = async () => {
+    if (!newUser.name.trim()) return;
+    const exists = users.find(u => u.name.toLowerCase() === newUser.name.trim().toLowerCase());
+    if (exists) return alert("Este usuário já está cadastrado.");
+
     await api.post('/users', newUser);
     setNewUser({ name: '', color: '#1976d2' });
     fetchData();
   };
 
   const handleAddCategory = async () => {
+    if (!newCat.name.trim()) return;
+    const exists = categories.find(c => 
+      c.name.toLowerCase() === newCat.name.trim().toLowerCase() && c.type === newCat.type
+    );
+    if (exists) return alert("Já existe uma categoria com este nome para este tipo.");
+
     await api.post('/categories', newCat);
     setNewCat({ ...newCat, name: '' });
     fetchData();
@@ -54,19 +85,27 @@ export default function Management() {
   };
 
   return (
-    <Box sx={{ p: 2, maxWidth: '1200px', margin: '0 auto' }}>
-      <Typography variant="h4" fontWeight="900" mb={4}>Gestão de <Typography component="span" variant="h4" color="primary" fontWeight="900">Configurações</Typography></Typography>
-      <Grid container spacing={4}>
-        <Grid size={{ xs: 12, md: 6 }}>
+    <Box sx={{ p: 2, pt: 7, maxWidth: '1600px', margin: '0 auto' }}>
+      <Typography variant="h4" fontWeight="900" mb={4} textAlign="center">
+        Gestão de <Typography component="span" variant="h4" color="primary" fontWeight="900">Configurações</Typography>
+      </Typography>
+
+      <Grid container spacing={4} justifyContent="center">
+        
+        {/* COLUNA USUÁRIOS */}
+        <Grid item xs={12} md={2}>
           <Paper sx={{ p: 3, borderRadius: 5 }}>
-            <Stack direction="row" spacing={1} alignItems="center" mb={3}><Person color="primary" /><Typography variant="h6" fontWeight="bold">Usuários</Typography></Stack>
+            <Stack direction="row" spacing={1} alignItems="center" mb={3}>
+              <Person color="primary" />
+              <Typography variant="h6" fontWeight="bold">Usuários</Typography>
+            </Stack>
             <Stack direction="row" spacing={1} mb={3}>
               <TextField fullWidth label="Nome" size="small" value={newUser.name} onChange={(e) => setNewUser({...newUser, name: e.target.value})} />
-              <input type="color" value={newUser.color} style={{ width: 60, height: 40, border: '1px solid #ccc', borderRadius: '4px' }} onChange={(e) => setNewUser({...newUser, color: e.target.value})} />
+              <input type="color" value={newUser.color} style={{ width: 60, height: 40, border: '1px solid #ccc', borderRadius: '4px', cursor: 'pointer' }} onChange={(e) => setNewUser({...newUser, color: e.target.value})} />
               <Button variant="contained" onClick={handleAddUser}><Add /></Button>
             </Stack>
             <List sx={{ bgcolor: 'action.hover', borderRadius: 3 }}>
-              {users.map((u) => (
+              {sortedUsers.map((u) => (
                 <ListItem key={u.id} sx={{ opacity: u.active ? 1 : 0.5 }} secondaryAction={
                   <Stack direction="row" spacing={1}>
                     <IconButton onClick={() => openEdit(u, 'users')} color="primary"><Edit /></IconButton>
@@ -80,35 +119,79 @@ export default function Management() {
             </List>
           </Paper>
         </Grid>
-        <Grid size={{ xs: 12, md: 6 }}>
+
+        {/* COLUNA CATEGORIAS */}
+        <Grid item xs={12} md={10}>
           <Paper sx={{ p: 3, borderRadius: 5 }}>
-            <Stack direction="row" spacing={1} alignItems="center" mb={3}><Category color="primary" /><Typography variant="h6" fontWeight="bold">Categorias</Typography></Stack>
+            <Stack direction="row" spacing={1} alignItems="center" mb={3}>
+              <Category color="primary" />
+              <Typography variant="h6" fontWeight="bold">Categorias</Typography>
+            </Stack>
+            
             <Stack spacing={2} mb={3}>
               <Stack direction="row" spacing={1}>
                 <TextField fullWidth label="Nova Categoria" size="small" value={newCat.name} onChange={(e) => setNewCat({...newCat, name: e.target.value})} />
-                <input type="color" value={newCat.color} style={{ width: 60, height: 40, border: '1px solid #ccc', borderRadius: '4px' }} onChange={(e) => setNewCat({...newCat, color: e.target.value})} />
+                <input type="color" value={newCat.color} style={{ width: 60, height: 40, border: '1px solid #ccc', borderRadius: '4px', cursor: 'pointer' }} onChange={(e) => setNewCat({...newCat, color: e.target.value})} />
               </Stack>
               <Stack direction="row" spacing={1}>
                 <TextField select fullWidth size="small" value={newCat.type} onChange={(e) => setNewCat({...newCat, type: e.target.value})}><MenuItem value="EXPENSE">Despesa</MenuItem><MenuItem value="INCOME">Receita</MenuItem></TextField>
                 <Button variant="contained" onClick={handleAddCategory}><Add /></Button>
               </Stack>
             </Stack>
+
+            <Divider sx={{ mb: 2 }} />
+
+            <TextField
+              fullWidth
+              size="small"
+              placeholder="Buscar categoria..."
+              value={catSearch}
+              onChange={(e) => setCatSearch(e.target.value)}
+              sx={{ mb: 2 }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Search fontSize="small" color="action" />
+                  </InputAdornment>
+                ),
+              }}
+            />
+
             <List sx={{ bgcolor: 'action.hover', borderRadius: 3, maxHeight: 400, overflow: 'auto' }}>
-              {categories.map((c) => (
-                <ListItem key={c.id} sx={{ opacity: c.active ? 1 : 0.5 }} secondaryAction={
-                  <Stack direction="row" spacing={1}>
-                    <IconButton onClick={() => openEdit(c, 'categories')} color="primary"><Edit /></IconButton>
-                    {c.active && <IconButton onClick={() => handleDelete('categories', c.id)} color="error"><Delete /></IconButton>}
-                  </Stack>
-                }>
-                  <Box sx={{ width: 14, height: 14, borderRadius: '50%', bgcolor: c.color, mr: 2 }} />
-                  <ListItemText primary={c.name} secondary={c.active ? c.type : "Inativa"} />
+              {filteredAndSortedCategories.map((c) => (
+                <ListItem 
+                  key={c.id} 
+                  sx={{ 
+                    opacity: c.active ? 1 : 0.5,
+                    pr: 12 
+                  }} 
+                  secondaryAction={
+                    <Stack direction="row" spacing={1}>
+                      <IconButton onClick={() => openEdit(c, 'categories')} color="primary"><Edit /></IconButton>
+                      {c.active && <IconButton onClick={() => handleDelete('categories', c.id)} color="error"><Delete /></IconButton>}
+                    </Stack>
+                  }
+                >
+                  <Box sx={{ width: 14, height: 14, borderRadius: '50%', bgcolor: c.color, mr: 2, flexShrink: 0 }} />
+                  <ListItemText 
+                    primary={c.name} 
+                    secondary={c.active ? c.type : "Inativa"} 
+                    primaryTypographyProps={{ 
+                      style: { 
+                        fontWeight: 'normal',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                      } 
+                    }}
+                  />
                 </ListItem>
               ))}
             </List>
           </Paper>
         </Grid>
       </Grid>
+
       <Dialog open={editDialogOpen} onClose={() => setEditDialogOpen(false)} fullWidth maxWidth="xs">
         <DialogTitle>Editar Item</DialogTitle>
         <DialogContent><Stack spacing={3} sx={{ mt: 1 }}>

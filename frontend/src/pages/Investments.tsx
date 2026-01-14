@@ -3,12 +3,13 @@ import {
   Grid, Paper, Typography, Card, CardContent, Box, 
   CircularProgress, useTheme, Avatar, Stack, Tab, Tabs,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip,
-  TextField, MenuItem, Slider, styled
+  TextField, MenuItem, Slider, styled, Tooltip as MuiTooltip,
+  TablePagination, Divider
 } from '@mui/material';
 import { 
   TrendingUp, TrendingDown, AccountBalance, Stars, 
   PieChart as PieIcon, Timeline, QueryStats, BarChart as BarIcon,
-  EmojiEvents
+  EmojiEvents, InfoOutlined
 } from '@mui/icons-material';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area, 
@@ -16,7 +17,6 @@ import {
 } from 'recharts';
 import api from '../services/api';
 
-// Slider dos gráficos
 const SmoothSlider = styled(Slider)(({ theme }) => ({
   '& .MuiSlider-thumb': {
     transition: theme.transitions.create(['left', 'box-shadow'], {
@@ -34,11 +34,14 @@ export default function Investments() {
   const theme = useTheme();
   const [loading, setLoading] = useState(true);
   const [transactions, setTransactions] = useState<any[]>([]);
+  const [marketPrices, setMarketPrices] = useState<Record<string, number>>({});
   const [tabValue, setTabValue] = useState(0);
   const [userFilter, setUserFilter] = useState('Todos');
 
-  const WINDOW_SIZE = 12;
+  const [page, setPage] = useState(0);
+  const rowsPerPage = 5; 
 
+  const WINDOW_SIZE = 12;
   const [startDiv, setStartDiv] = useState(0);
   const [startPat, setStartPat] = useState(0);
 
@@ -50,8 +53,13 @@ export default function Investments() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await api.get('/transactions');
-      setTransactions(Array.isArray(response.data) ? response.data : []);
+      const [transRes, pricesRes] = await Promise.all([
+        api.get('/transactions'),
+        api.get('/assets/prices').catch(() => ({ data: {} }))
+      ]);
+      
+      setTransactions(Array.isArray(transRes.data) ? transRes.data : []);
+      setMarketPrices(pricesRes.data || {});
     } catch (error) {
       console.error("Erro ao carregar investimentos:", error);
     } finally {
@@ -65,6 +73,11 @@ export default function Investments() {
     return [...new Set(transactions.map(t => t.user_name))].filter(Boolean);
   }, [transactions]);
 
+  const handleUserFilterChange = (val: string) => {
+    setUserFilter(val);
+    setPage(0);
+  };
+
   const stats = useMemo(() => {
     const filteredByUser = transactions.filter(t => 
       userFilter === 'Todos' || t.user_name === userFilter
@@ -72,33 +85,52 @@ export default function Investments() {
 
     const investTrans = filteredByUser.filter(t => t?.category_name?.toLowerCase().includes('investimento'));
     
-    const aportesSalario = investTrans.filter(t => t.category_name === 'Investimentos - Aporte').reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
-    const reinvestimentos = investTrans.filter(t => t.category_name === 'Investimentos - Reinvestimento').reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
-    const resgates = investTrans.filter(t => t.category_name.includes('Resgate')).reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
-    const dividendos = investTrans.filter(t => t.category_name.includes('Dividendos')).reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
+    const dividendosTotal = investTrans
+      .filter(t => t.category_name.includes('Dividendos'))
+      .reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
 
     const positionMap = investTrans.filter(t => t.asset_ticker).reduce((acc: any, t: any) => {
       const ticker = t.asset_ticker.toUpperCase();
-      if (!acc[ticker]) acc[ticker] = { ticker, quantity: 0, totalAmount: 0 };
+      if (!acc[ticker]) acc[ticker] = { ticker, quantity: 0, totalCost: 0 };
+      
       const q = Number(t.quantity || 0);
       const a = Number(t.amount || 0);
       
-      // Aporte e Reinvestimento
       if (t.category_name.includes('Aporte') || t.category_name.includes('Reinvestimento')) { 
         acc[ticker].quantity += q; 
-        acc[ticker].totalAmount += a; 
+        acc[ticker].totalCost += a; 
       }
       else if (t.category_name.includes('Resgate')) { 
         acc[ticker].quantity -= q; 
-        acc[ticker].totalAmount -= a; 
+        acc[ticker].totalCost -= a; 
       }
       return acc;
     }, {});
 
-    const consolidatedPosition = Object.values(positionMap).filter((p: any) => p.quantity > 0);
-    
+    const consolidatedPosition = Object.values(positionMap)
+      .filter((p: any) => p.quantity > 0)
+      .map((p: any) => {
+        const currentPrice = marketPrices[p.ticker] || (p.totalCost / p.quantity);
+        const currentTotal = currentPrice * p.quantity;
+        const profitLoss = currentTotal - p.totalCost;
+        const performance = p.totalCost > 0 ? (profitLoss / p.totalCost) * 100 : 0;
+
+        return {
+          ...p,
+          avgPrice: p.totalCost / p.quantity,
+          currentPrice,
+          currentTotal,
+          profitLoss,
+          performance
+        };
+      })
+      .sort((a, b) => b.currentTotal - a.currentTotal);
+
+    const patrimonioMercado = consolidatedPosition.reduce((acc, curr) => acc + curr.currentTotal, 0);
+    const custoTotal = consolidatedPosition.reduce((acc, curr) => acc + curr.totalCost, 0);
+
     const allocationData = consolidatedPosition
-      .map((p: any) => ({ name: p.ticker, value: p.totalAmount }))
+      .map((p: any) => ({ name: p.ticker, value: p.currentTotal }))
       .sort((a, b) => b.value - a.value);
 
     const monthlyMap: any = {};
@@ -112,7 +144,6 @@ export default function Investments() {
       if (t.category_name.includes('Aporte') || t.category_name.includes('Reinvestimento')) runningPatrimony += val;
       if (t.category_name.includes('Resgate')) runningPatrimony -= val;
       if (t.category_name.includes('Dividendos')) monthlyMap[monthYear].dividendos += val;
-      
       monthlyMap[monthYear].patrimony = runningPatrimony;
     });
 
@@ -121,52 +152,75 @@ export default function Investments() {
       label: new Date(item.month + '-02').toLocaleDateString('pt-BR', { month: 'short' }).toUpperCase()
     }));
 
-    if (fullHistory.length > 0 && startDiv === 0 && startPat === 0) {
-      const lastPossibleStart = Math.max(0, fullHistory.length - WINDOW_SIZE);
-      setStartDiv(lastPossibleStart);
-      setStartPat(lastPossibleStart);
-    }
-
     return {
-      patrimonioTotal: (aportesSalario + reinvestimentos) - resgates,
-      dinheiroDoBolso: aportesSalario - resgates,
-      dividendos,
+      patrimonioTotal: patrimonioMercado,
+      dinheiroDoBolso: custoTotal,
+      dividendos: dividendosTotal,
+      lucroReal: patrimonioMercado - custoTotal,
+      performanceGeral: custoTotal > 0 ? ((patrimonioMercado / custoTotal) - 1) * 100 : 0,
       allocationData,
       consolidatedPosition,
       fullHistory
     };
-  }, [transactions, userFilter, startDiv, startPat]);
+  }, [transactions, userFilter, marketPrices]);
 
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}><CircularProgress /></Box>;
 
   return (
     <Box sx={{ pt: 2, px: 2, pb: 2, maxWidth: '1200px', margin: '0 auto' }}>
       
-      {/* Header Abas e Usuário */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: 1, borderColor: 'divider', mb: 4 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: 1, borderColor: 'divider', mb: 2 }}>
         <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)}>
           <Tab icon={<PieIcon />} iconPosition="start" label="Visão Geral" />
           <Tab icon={<Timeline />} iconPosition="start" label="Evolução Mensal" />
         </Tabs>
-        <TextField select label="Usuário" size="small" sx={{ width: 180, mb: 1 }} value={userFilter} onChange={(e) => setUserFilter(e.target.value)}>
+        <TextField select label="Usuário" size="small" sx={{ width: 180, mb: 1 }} value={userFilter} onChange={(e) => handleUserFilterChange(e.target.value)}>
           <MenuItem value="Todos">Todos</MenuItem>
           {userList.map(user => <MenuItem key={user as string} value={user as string}>{user as string}</MenuItem>)}
         </TextField>
       </Box>
 
-      {/* Cards KPI */}
-      <Grid container spacing={2} sx={{ mb: 5 }} justifyContent="center">
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}><KPICard title="Patrimônio" value={formatCurrency(stats.patrimonioTotal)} icon={<AccountBalance />} color="#9c27b0" /></Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}><KPICard title="Dinheiro do Bolso" value={formatCurrency(stats.dinheiroDoBolso)} icon={<Stars />} color={theme.palette.primary.main} /></Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}><KPICard title="Total Proventos" value={formatCurrency(stats.dividendos)} icon={<TrendingUp />} color={theme.palette.success.main} /></Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}><KPICard title="Lucro/Crescimento" value={formatCurrency(stats.patrimonioTotal - stats.dinheiroDoBolso)} icon={<EmojiEvents />} color="#ff9800" /></Grid>
+      <Grid container spacing={2} sx={{ mb: 2 }} justifyContent="center">
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <KPICard 
+            title="Patrimônio Atual" 
+            value={formatCurrency(stats.patrimonioTotal)} 
+            icon={<AccountBalance />} 
+            color="#9c27b0" 
+            performance={stats.performanceGeral}
+          />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <KPICard 
+            title="Total Investido" 
+            value={formatCurrency(stats.dinheiroDoBolso)} 
+            icon={<Stars />} 
+            color={theme.palette.primary.main} 
+          />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <KPICard 
+            title="Total Proventos" 
+            value={formatCurrency(stats.dividendos)} 
+            icon={<TrendingUp />} 
+            color={theme.palette.success.main} 
+          />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <KPICard 
+            title="Lucro/Prejuízo" 
+            value={formatCurrency(stats.lucroReal)} 
+            icon={<EmojiEvents />} 
+            color={stats.lucroReal >= 0 ? "#ff9800" : theme.palette.error.main} 
+          />
+        </Grid>
       </Grid>
 
       {tabValue === 0 ? (
         <Grid container spacing={2} justifyContent="center">
           <Grid size={{ xs: 12, md: 5 }}>
             <Paper sx={{ p: 3, borderRadius: 5, height: 600, display: 'flex', flexDirection: 'column', textAlign: 'center' }}>
-              <Typography variant="h6" fontWeight="900" mb={3} color="text.secondary">Distribuição de Ativo</Typography>
+              <Typography variant="h6" fontWeight="900" mb={3} color="text.secondary">Distribuição Atual (Mercado)</Typography>
               <Box sx={{ flexGrow: 1 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
@@ -178,7 +232,6 @@ export default function Investments() {
                 </ResponsiveContainer>
               </Box>
 
-              {/* Legendas Limitadas a 5 */}
               <Stack spacing={1.5} sx={{ mt: 3, px: 2 }}>
                  {stats.allocationData.slice(0, 5).map((item, i) => (
                    <Box key={i} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -194,13 +247,82 @@ export default function Investments() {
               </Stack>
             </Paper>
           </Grid>
+          
           <Grid size={{ xs: 12, md: 7 }}>
-            <TableContainer component={Paper} sx={{ borderRadius: 5, height: 600 }}>
-              <Box sx={{ p: 3, pb: 1 }}><Typography variant="h6" fontWeight="900" color="text.secondary" display="flex" alignItems="center" gap={1}><QueryStats color="primary" /> Minha Carteira</Typography></Box>
-              <Table stickyHeader>
-                <TableHead><TableRow><TableCell sx={{ fontWeight: 'bold' }}>ATIVO</TableCell><TableCell align="right" sx={{ fontWeight: 'bold' }}>QTD</TableCell><TableCell align="right" sx={{ fontWeight: 'bold' }}>TOTAL</TableCell></TableRow></TableHead>
-                <TableBody>{stats.consolidatedPosition.map((p: any) => (<TableRow key={p.ticker} hover><TableCell><Chip label={p.ticker} size="medium" sx={{ fontWeight: 'bold', bgcolor: `${theme.palette.primary.main}15`, color: 'primary.main' }} /></TableCell><TableCell align="right">{p.quantity.toLocaleString('pt-BR')}</TableCell><TableCell align="right" sx={{ fontWeight: 900 }}>{formatCurrency(p.totalAmount)}</TableCell></TableRow>))}</TableBody>
-              </Table>
+            <TableContainer 
+              component={Paper} 
+              sx={{ 
+                borderRadius: 5, 
+                height: 600, 
+                display: 'flex', 
+                flexDirection: 'column', 
+                overflow: 'hidden' 
+              }}
+            >
+              <Box sx={{ p: 3, pb: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Typography variant="h6" fontWeight="900" color="text.secondary" display="flex" alignItems="center" gap={1}>
+                  <QueryStats color="primary" /> Minha Carteira
+                </Typography>
+                <MuiTooltip title="Valores comparados com preço real de mercado via API">
+                  <InfoOutlined sx={{ color: 'text.disabled', fontSize: 20 }} />
+                </MuiTooltip>
+              </Box>
+
+              <Box sx={{ flexGrow: 1, overflow: 'hidden' }}>
+                <Table stickyHeader>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 'bold', bgcolor: 'background.paper' }}>ATIVO</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 'bold', bgcolor: 'background.paper' }}>QTD</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 'bold', bgcolor: 'background.paper' }}>PREÇO MÉDIO / ATUAL</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 'bold', bgcolor: 'background.paper' }}>TOTAL MERCADO</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {stats.consolidatedPosition
+                      .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
+                      .map((p: any) => (
+                        <TableRow key={p.ticker} hover sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
+                          <TableCell>
+                            <Stack direction="row" alignItems="center" spacing={1}>
+                              <Chip label={p.ticker} size="medium" sx={{ fontWeight: 'bold', bgcolor: `${theme.palette.primary.main}15`, color: 'primary.main' }} />
+                              <Typography variant="caption" sx={{ fontWeight: 900, color: p.performance >= 0 ? 'success.main' : 'error.main' }}>
+                                {p.performance >= 0 ? '+' : ''}{p.performance.toFixed(2)}%
+                              </Typography>
+                            </Stack>
+                          </TableCell>
+                          <TableCell align="right">{p.quantity.toLocaleString('pt-BR')}</TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+                              Méd: {formatCurrency(p.avgPrice)}
+                            </Typography>
+                            <Typography variant="body2" fontWeight="bold">
+                              Atu: {formatCurrency(p.currentPrice)}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography fontWeight={900}>{formatCurrency(p.currentTotal)}</Typography>
+                            <Typography variant="caption" sx={{ color: p.profitLoss >= 0 ? 'success.main' : 'error.main', fontWeight: 'bold' }}>
+                              {p.profitLoss >= 0 ? '+' : ''}{formatCurrency(p.profitLoss)}
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                  </TableBody>
+                </Table>
+              </Box>
+
+              <Divider />
+              <TablePagination
+                component="div"
+                count={stats.consolidatedPosition.length}
+                rowsPerPage={rowsPerPage}
+                page={page}
+                onPageChange={(_, newPage) => setPage(newPage)}
+                rowsPerPageOptions={[]} 
+                labelDisplayedRows={({ from, to, count }) => `${from}-${to} de ${count}`}
+                sx={{ borderTop: 'none' }}
+              />
             </TableContainer>
           </Grid>
         </Grid>
@@ -216,7 +338,7 @@ export default function Investments() {
                     <XAxis dataKey="label" tick={{ fontSize: 11, fontWeight: 'bold' }} interval={0} />
                     <YAxis hide />
                     <Tooltip formatter={(v: any) => formatCurrency(v)} cursor={{fill: 'transparent'}} />
-                    <Bar dataKey="dividendos" fill={theme.palette.success.main} radius={[4, 4, 0, 0]} isAnimationActive={true} animationDuration={400} />
+                    <Bar dataKey="dividendos" fill={theme.palette.success.main} radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </Box>
@@ -228,7 +350,7 @@ export default function Investments() {
 
           <Grid size={{ xs: 12, md: 6 }}>
             <Paper sx={{ p: 4, pb: 2, borderRadius: 5, height: 520, display: 'flex', flexDirection: 'column' }}>
-              <Typography variant="h6" fontWeight="900" mb={3} display="flex" alignItems="center" gap={1}><AccountBalance color="primary" /> PATRIMÔNIO</Typography>
+              <Typography variant="h6" fontWeight="900" mb={3} display="flex" alignItems="center" gap={1}><AccountBalance color="primary" /> EVOLUÇÃO (CUSTO)</Typography>
               <Box sx={{ flexGrow: 1 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={stats.fullHistory.slice(startPat, startPat + WINDOW_SIZE)}>
@@ -237,7 +359,7 @@ export default function Investments() {
                     <XAxis dataKey="label" tick={{ fontSize: 11, fontWeight: 'bold' }} interval={0} />
                     <YAxis hide />
                     <Tooltip formatter={(v: any) => formatCurrency(v)} />
-                    <Area type="monotone" dataKey="patrimony" stroke={theme.palette.primary.main} strokeWidth={3} fill="url(#cPat)" isAnimationActive={true} animationDuration={400} />
+                    <Area type="monotone" dataKey="patrimony" stroke={theme.palette.primary.main} strokeWidth={3} fill="url(#cPat)" />
                   </AreaChart>
                 </ResponsiveContainer>
               </Box>
@@ -252,13 +374,29 @@ export default function Investments() {
   );
 }
 
-function KPICard({ title, value, icon, color }: any) {
+function KPICard({ title, value, icon, color, performance }: any) {
   return (
-    <Card sx={{ borderRadius: 5, boxShadow: '0 4px 20px rgba(0,0,0,0.02)', border: '1px solid', borderColor: 'divider' }}>
-      <CardContent sx={{ p: 2, textAlign: 'center' }}>
+    <Card sx={{ 
+      borderRadius: 5, 
+      boxShadow: '0 4px 20px rgba(0,0,0,0.02)', 
+      border: '1px solid', 
+      borderColor: 'divider',
+      height: '100%',
+      display: 'flex',
+      flexDirection: 'column'
+    }}>
+      <CardContent sx={{ p: 2, textAlign: 'center', flexGrow: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
         <Avatar sx={{ bgcolor: `${color}12`, color, mx: 'auto', mb: 1, width: 44, height: 44, borderRadius: '14px' }}>{icon}</Avatar>
         <Typography variant="caption" color="text.secondary" fontWeight="900" sx={{ textTransform: 'uppercase' }}>{title}</Typography>
         <Typography variant="h5" fontWeight="900" sx={{ mt: 0.5 }}>{value}</Typography>
+        
+        <Box sx={{ minHeight: '20px', mt: 0.5 }}>
+          {performance !== undefined && (
+            <Typography variant="caption" color={performance >= 0 ? "success.main" : "error.main"} fontWeight="bold">
+              {performance >= 0 ? '+' : ''}{performance.toFixed(2)}%
+            </Typography>
+          )}
+        </Box>
       </CardContent>
     </Card>
   );

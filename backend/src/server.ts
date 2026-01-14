@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { query } from './database/index.js';
 import { randomUUID } from 'crypto';
+import axios from 'axios';
 
 dotenv.config();
 
@@ -11,6 +12,9 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
+
+// Função auxiliar para evitar estouro de limite da Alpha Vantage (5 req/min)
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // --- Rota: Diagnóstico ---
 app.get('/health', async (req, res) => {
@@ -356,6 +360,90 @@ app.delete('/budgets/:id', async (req, res) => {
     res.status(204).send();
   } catch (err) {
     res.status(500).json({ error: 'Erro ao deletar meta' });
+  }
+});
+
+// --- Rota Principal de Preços ---
+app.get('/assets/prices', async (req, res) => {
+  try {
+    const result = await query('SELECT DISTINCT ticker, investment_type FROM assets a JOIN transactions t ON t.asset_id = a.id WHERE ticker IS NOT NULL');
+    const assets = result.rows;
+    const prices: Record<string, number> = {};
+    const brapiToken = process.env.BRAPI_TOKEN;
+
+    // Dólar via AwesomeAPI (Token-free e estável)
+    let usdToBrl = 5.40;
+    try {
+      const exchangeRes = await axios.get('https://economia.awesomeapi.com.br/last/USD-BRL');
+      usdToBrl = parseFloat(exchangeRes.data.USDBRL.bid);
+      console.log(`[Câmbio] Dólar: R$ ${usdToBrl}`);
+    } catch (e) {
+      console.error("[Câmbio] Erro na AwesomeAPI, usando 5.40 como fallback");
+    }
+
+    // Grupo de Ações/FIIs/BDRs (Brapi)
+    const stockAssets = assets.filter(a => a.investment_type !== 'CRIPTOS');
+    if (stockAssets.length > 0) {
+      const tickers = stockAssets.map(a => a.ticker.trim().toUpperCase());
+      try {
+        console.log(`[Brapi] Lote: ${tickers.join(',')}`);
+        const response = await axios.get(`https://brapi.dev/api/quote/${tickers.join(',')}?token=${brapiToken}`);
+        response.data.results.forEach((r: any) => {
+          if (r.regularMarketPrice) {
+            prices[r.symbol] = (r.currency === 'USD') ? r.regularMarketPrice * usdToBrl : r.regularMarketPrice;
+          }
+        });
+      } catch (err) {
+        console.warn("[Brapi] Lote falhou. Tentando busca individual...");
+        for (const asset of stockAssets) {
+          try {
+            const r = await axios.get(`https://brapi.dev/api/quote/${asset.ticker}?token=${brapiToken}`);
+            const data = r.data.results[0];
+            if (data.regularMarketPrice) {
+              prices[asset.ticker] = (data.currency === 'USD') ? data.regularMarketPrice * usdToBrl : data.regularMarketPrice;
+            }
+          } catch (e) { console.error(`[Brapi] Erro no ticker: ${asset.ticker}`); }
+        }
+      }
+    }
+
+    // Criptos (Brapi + CoinMarketCap Fallback)
+    const cryptoAssets = assets.filter(a => a.investment_type === 'CRIPTOS');
+    for (const asset of cryptoAssets) {
+      const ticker = asset.ticker.trim().toUpperCase();
+      try {
+        const bRes = await axios.get(`https://brapi.dev/api/v2/crypto?coin=${ticker}&token=${brapiToken}`);
+        prices[ticker] = bRes.data.coins[0].regularMarketPrice;
+      } catch (e) {
+        if (process.env.CMC_PRO_API_KEY) {
+          try {
+            const cmcRes = await axios.get(`https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?symbol=${ticker}&convert=BRL`, {
+              headers: { 'X-CMC_PRO_API_KEY': process.env.CMC_PRO_API_KEY }
+            });
+            prices[ticker] = cmcRes.data.data[ticker].quote.BRL.price;
+          } catch (err) { console.error(`[CMC] Erro em ${ticker}`); }
+        }
+      }
+    }
+
+    // Alpha Vantage Fallback (Apenas ativos internacionais que a Brapi não resolveu)
+    const pendingIntl = stockAssets.filter(a => a.investment_type === 'INTERNACIONAL' && !prices[a.ticker]);
+    for (const asset of pendingIntl) {
+      try {
+        console.log(`[AlphaVantage] Buscando: ${asset.ticker}`);
+        const avRes = await axios.get(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${asset.ticker}&apikey=${process.env.ALPHA_VANTAGE_KEY}`);
+        const priceUSD = parseFloat(avRes.data["Global Quote"]?.["05. price"]);
+        if (!isNaN(priceUSD)) {
+          prices[asset.ticker] = priceUSD * usdToBrl;
+          await delay(12000); // Respeita limite de 5 requisições por minuto
+        }
+      } catch (e) { console.error(`[AlphaVantage] Falha em ${asset.ticker}`); }
+    }
+
+    res.json(prices);
+  } catch (err) {
+    console.error("[Preços] Erro geral:", err);
+    res.status(500).json({ error: 'Erro ao buscar cotações' });
   }
 });
 

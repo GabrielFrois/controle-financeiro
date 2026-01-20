@@ -40,7 +40,9 @@ CREATE TABLE IF NOT EXISTS transactions (
     asset_id INTEGER REFERENCES assets(id),
     quantity DECIMAL(12, 4),
     installment_group_id UUID, 
-    investment_type VARCHAR(50) DEFAULT 'OUTROS',
+    investment_type VARCHAR(50) DEFAULT 'OUTROS' 
+    CHECK (investment_type IN ('RENDA_FIXA', 'ACOES', 'FII', 'CRIPTOS', 'INTERNACIONAL', 'OUTROS')),
+    yield_rate DECIMAL(10, 2),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

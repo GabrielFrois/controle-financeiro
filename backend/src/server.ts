@@ -154,10 +154,10 @@ app.get('/transactions', async (req, res) => {
 
 // Criar Transação
 app.post('/transactions', async (req, res) => {
-  const { 
-    description, amount, type, category_id, user_id, 
+  const {
+    description, amount, type, category_id, user_id,
     date, payment_method_id, installments, asset_ticker, quantity,
-    investment_type
+    investment_type, yield_rate
   } = req.body;
 
   if (!description || !amount || !type || !category_id || !user_id || !date || !payment_method_id) {
@@ -185,7 +185,7 @@ app.post('/transactions', async (req, res) => {
     for (let i = 0; i < numInstallments; i++) {
       const currentLabel = numInstallments > 1 ? ` (${i + 1}/${numInstallments})` : '';
       const installmentDate = new Date(baseDate);
-      installmentDate.setUTCDate(1); 
+      installmentDate.setUTCDate(1);
       installmentDate.setUTCMonth(baseDate.getUTCMonth() + i);
       const lastDay = new Date(Date.UTC(installmentDate.getUTCFullYear(), installmentDate.getUTCMonth() + 1, 0)).getUTCDate();
       installmentDate.setUTCDate(Math.min(baseDate.getUTCDate(), lastDay));
@@ -194,24 +194,25 @@ app.post('/transactions', async (req, res) => {
         INSERT INTO transactions (
           description, amount, type, user_id, category_id, 
           date, payment_method_id, asset_id, quantity, installment_group_id,
-          investment_type -- <-- Novo campo
+          investment_type, yield_rate -- <-- Novo campo
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         RETURNING *
       `;
-      
+
       const values = [
-        `${description}${currentLabel}`, 
-        installmentValue, 
-        type, 
-        user_id, 
-        category_id, 
-        installmentDate.toISOString().split('T')[0], 
+        `${description}${currentLabel}`,
+        installmentValue,
+        type,
+        user_id,
+        category_id,
+        installmentDate.toISOString().split('T')[0],
         payment_method_id,
         assetId,
         quantity ? parseFloat(quantity) : null,
         groupId,
-        investment_type || 'OUTROS'
+        investment_type || 'OUTROS',
+        yield_rate ? parseFloat(yield_rate) : null
       ];
 
       const result = await query(sql, values);
@@ -228,23 +229,57 @@ app.post('/transactions', async (req, res) => {
 // Editar Transação Individual
 app.put('/transactions/:id', async (req, res) => {
   const { id } = req.params;
-  const { 
-    description, amount, type, category_id, user_id, 
-    date, payment_method_id, investment_type 
+  const {
+    description, amount, type, category_id, user_id,
+    date, payment_method_id, investment_type, yield_rate,
+    asset_ticker, quantity
   } = req.body;
 
   try {
+    // Lógica para buscar ou criar o Ativo
+    let assetId = null;
+
+    // Se vier um ticker preenchido, buscamos/criamos o ID
+    if (asset_ticker && asset_ticker.trim() !== '') {
+      const tickerUpper = asset_ticker.trim().toUpperCase();
+      const assetResult = await query(
+        `INSERT INTO assets (ticker) VALUES ($1) ON CONFLICT (ticker) DO UPDATE SET ticker = EXCLUDED.ticker RETURNING id`,
+        [tickerUpper]
+      );
+      assetId = assetResult.rows[0].id;
+    }
+
+    // Query de Update 
     const sql = `
       UPDATE transactions 
       SET description = $1, amount = $2, type = $3, category_id = $4, 
-          user_id = $5, date = $6, payment_method_id = $7, investment_type = $8
-      WHERE id = $9
+          user_id = $5, date = $6, payment_method_id = $7, 
+          investment_type = $8, yield_rate = $9,
+          asset_id = $10, quantity = $11
+      WHERE id = $12
       RETURNING *
     `;
-    const values = [description, amount, type, category_id, user_id, date, payment_method_id, investment_type || 'OUTROS', id];
+
+    const values = [
+      description,
+      amount,
+      type,
+      category_id,
+      user_id,
+      date,
+      payment_method_id,
+      investment_type || 'OUTROS',
+      yield_rate ? parseFloat(yield_rate) : null, 
+      assetId,
+      quantity ? parseFloat(quantity) : null,
+      id
+    ];
+
     const result = await query(sql, values);
     res.json(result.rows[0]);
+
   } catch (err) {
+    console.error("Erro no PUT /transactions:", err);
     res.status(500).json({ error: 'Erro ao atualizar transação' });
   }
 });
@@ -252,22 +287,22 @@ app.put('/transactions/:id', async (req, res) => {
 // Editar Grupo de Transações (Parcelas)
 app.put('/transactions/group/:groupId', async (req, res) => {
   const { groupId } = req.params;
-  const { 
-    description, amount, type, category_id, user_id, 
-    payment_method_id, referer_date, investment_type 
+  const {
+    description, amount, type, category_id, user_id,
+    payment_method_id, referer_date, investment_type, yield_rate
   } = req.body;
 
   try {
     const sql = `
       UPDATE transactions 
       SET description = $1, amount = $2, type = $3, category_id = $4, 
-          user_id = $5, payment_method_id = $6, investment_type = $7
-      WHERE installment_group_id = $8 AND date >= $9
+          user_id = $5, payment_method_id = $6, investment_type = $7, yield_rate = $8
+      WHERE installment_group_id = $9 AND date >= $10
       RETURNING *
     `;
-    const values = [description, amount, type, category_id, user_id, payment_method_id, investment_type || 'OUTROS', groupId, referer_date];
+    const values = [description, amount, type, category_id, user_id, payment_method_id, investment_type || 'OUTROS', yield_rate, groupId, referer_date];
     const result = await query(sql, values);
-    
+
     res.json({ message: `${result.rowCount} parcelas atualizadas com sucesso.`, data: result.rows });
   } catch (err) {
     console.error(err);
@@ -341,11 +376,11 @@ app.put('/budgets/:id', async (req, res) => {
       RETURNING *
     `;
     const result = await query(sql, [category_id, amount, period, id]);
-    
+
     if (result.rowCount === 0) {
       return res.status(404).json({ error: 'Meta não encontrada.' });
     }
-    
+
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
@@ -371,7 +406,19 @@ app.get('/assets/prices', async (req, res) => {
     const prices: Record<string, number> = {};
     const brapiToken = process.env.BRAPI_TOKEN;
 
-    // Dólar via AwesomeAPI (Token-free e estável)
+    // Busca CDI (BANCO CENTRAL) ---
+    try {
+      // Série 12 é a taxa CDI diária
+      const bcbRes = await axios.get('https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados/ultimos/1?formato=json');
+      const cdiDiario = parseFloat(bcbRes.data[0].valor) / 100; // Transforma 0.0423 em 0.000423
+      prices['GLOBAL_CDI'] = cdiDiario;
+      console.log(`[BCB] CDI Diário: ${cdiDiario}%`);
+    } catch (e) {
+      console.error("[BCB] Erro ao buscar CDI, usando fallback de 0.04% ao dia");
+      prices['GLOBAL_CDI'] = 0.0004;
+    }
+
+    // Dólar via AwesomeAPI
     let usdToBrl = 5.40;
     try {
       const exchangeRes = await axios.get('https://economia.awesomeapi.com.br/last/USD-BRL');
@@ -384,13 +431,21 @@ app.get('/assets/prices', async (req, res) => {
     // Grupo de Ações/FIIs/BDRs (Brapi)
     const stockAssets = assets.filter(a => a.investment_type !== 'CRIPTOS');
     if (stockAssets.length > 0) {
-      const tickers = stockAssets.map(a => a.ticker.trim().toUpperCase());
+      // Adiciona .SA se for BDR (termina em 34) ou se não tiver ponto (ações comuns)
+      const tickers = stockAssets.map(a => {
+        const t = a.ticker.trim().toUpperCase();
+        return (t.endsWith('34') || !t.includes('.')) ? `${t}.SA` : t;
+      });
+
       try {
         console.log(`[Brapi] Lote: ${tickers.join(',')}`);
         const response = await axios.get(`https://brapi.dev/api/quote/${tickers.join(',')}?token=${brapiToken}`);
+
         response.data.results.forEach((r: any) => {
           if (r.regularMarketPrice) {
-            prices[r.symbol] = (r.currency === 'USD') ? r.regularMarketPrice * usdToBrl : r.regularMarketPrice;
+            // Removemos o .SA do símbolo de retorno para bater com o ticker original do banco
+            const originalTicker = r.symbol.replace('.SA', '');
+            prices[originalTicker] = (r.currency === 'USD') ? r.regularMarketPrice * usdToBrl : r.regularMarketPrice;
           }
         });
       } catch (err) {
@@ -430,14 +485,33 @@ app.get('/assets/prices', async (req, res) => {
     const pendingIntl = stockAssets.filter(a => a.investment_type === 'INTERNACIONAL' && !prices[a.ticker]);
     for (const asset of pendingIntl) {
       try {
-        console.log(`[AlphaVantage] Buscando: ${asset.ticker}`);
-        const avRes = await axios.get(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${asset.ticker}&apikey=${process.env.ALPHA_VANTAGE_KEY}`);
+        let searchTicker = asset.ticker.toUpperCase();
+
+        // Converte BDR para Ticker Americano
+        if (searchTicker.endsWith('34')) {
+          searchTicker = searchTicker.replace('34', ''); // Ex: TSMC34 -> TSMC
+        }
+
+        // Mapeamento manual para casos onde o nome muda (ex: TSMC em NY é apenas TSM)
+        const manualMapping: Record<string, string> = {
+          'TSMC': 'TSM',
+          'APPLE': 'AAPL',
+          'GOGL': 'GOOGL'
+        };
+        if (manualMapping[searchTicker]) searchTicker = manualMapping[searchTicker];
+
+        console.log(`[AlphaVantage] Traduzido: ${asset.ticker} -> ${searchTicker}`);
+
+        const avRes = await axios.get(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${searchTicker}&apikey=${process.env.ALPHA_VANTAGE_KEY}`);
         const priceUSD = parseFloat(avRes.data["Global Quote"]?.["05. price"]);
+
         if (!isNaN(priceUSD)) {
           prices[asset.ticker] = priceUSD * usdToBrl;
-          await delay(12000); // Respeita limite de 5 requisições por minuto
+          await delay(12000);
         }
-      } catch (e) { console.error(`[AlphaVantage] Falha em ${asset.ticker}`); }
+      } catch (e) {
+        console.error(`[AlphaVantage] Falha em ${asset.ticker}`);
+      }
     }
 
     res.json(prices);

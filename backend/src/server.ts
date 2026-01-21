@@ -137,7 +137,8 @@ app.get('/transactions', async (req, res) => {
         COALESCE(c.name, 'Inativa') as category_name, 
         COALESCE(c.color, '#9e9e9e') as category_color, 
         COALESCE(p.name, 'Pix') as payment_method_name,
-        a.ticker as asset_ticker
+        a.ticker as asset_ticker,
+        a.manual_price
       FROM transactions t
       LEFT JOIN users u ON t.user_id = u.id
       LEFT JOIN categories c ON t.category_id = c.id
@@ -269,7 +270,7 @@ app.put('/transactions/:id', async (req, res) => {
       date,
       payment_method_id,
       investment_type || 'OUTROS',
-      yield_rate ? parseFloat(yield_rate) : null, 
+      yield_rate ? parseFloat(yield_rate) : null,
       assetId,
       quantity ? parseFloat(quantity) : null,
       id
@@ -406,11 +407,11 @@ app.get('/assets/prices', async (req, res) => {
     const prices: Record<string, number> = {};
     const brapiToken = process.env.BRAPI_TOKEN;
 
-    // Busca CDI (BANCO CENTRAL) ---
+    // Busca CDI (BANCO CENTRAL)
     try {
       // Série 12 é a taxa CDI diária
       const bcbRes = await axios.get('https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados/ultimos/1?formato=json');
-      const cdiDiario = parseFloat(bcbRes.data[0].valor) / 100; // Transforma 0.0423 em 0.000423
+      const cdiDiario = parseFloat(bcbRes.data[0].valor) / 100;
       prices['GLOBAL_CDI'] = cdiDiario;
       console.log(`[BCB] CDI Diário: ${cdiDiario}%`);
     } catch (e) {
@@ -428,8 +429,18 @@ app.get('/assets/prices', async (req, res) => {
       console.error("[Câmbio] Erro na AwesomeAPI, usando 5.40 como fallback");
     }
 
+    // Define cotação para tickers de moeda
+    prices['DOLAR'] = usdToBrl;
+    prices['USDBRL'] = usdToBrl;
+
     // Grupo de Ações/FIIs/BDRs (Brapi)
-    const stockAssets = assets.filter(a => a.investment_type !== 'CRIPTOS');
+    // Filtramos CRIPTOS e os tickers da moeda (DOLAR/USDBRL)
+    const stockAssets = assets.filter(a =>
+      a.investment_type !== 'CRIPTOS' &&
+      a.ticker !== 'DOLAR' &&
+      a.ticker !== 'USDBRL'
+    );
+
     if (stockAssets.length > 0) {
       // Adiciona .SA se for BDR (termina em 34) ou se não tiver ponto (ações comuns)
       const tickers = stockAssets.map(a => {
@@ -556,6 +567,21 @@ app.get('/summary', async (req, res) => {
     res.json({ income, expense, balance: income - expense });
   } catch (err) {
     res.status(500).json({ error: 'Erro ao calcular resumo' });
+  }
+});
+
+// Atualizar Preço Médio Manual do Ativo
+app.put('/assets/price', async (req, res) => {
+  const { ticker, price } = req.body;
+  if (!ticker) return res.status(400).json({ error: 'Ticker obrigatório' });
+
+  try {
+    const val = price && parseFloat(price) > 0 ? parseFloat(price) : null;
+
+    await query('UPDATE assets SET manual_price = $1 WHERE ticker = $2', [val, ticker]);
+    res.json({ status: 'ok' });
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao atualizar preço ativo' });
   }
 });
 

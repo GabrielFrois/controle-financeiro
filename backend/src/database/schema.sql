@@ -18,7 +18,10 @@ CREATE TABLE IF NOT EXISTS categories (
 CREATE TABLE IF NOT EXISTS payment_methods (
     id SERIAL PRIMARY KEY,
     name VARCHAR(100) UNIQUE NOT NULL,
-    active BOOLEAN DEFAULT TRUE
+    active BOOLEAN DEFAULT TRUE,
+    closing_day INTEGER, 
+    due_day INTEGER,
+    card_limit DECIMAL(10, 2)
 );
 
 CREATE TABLE IF NOT EXISTS assets (

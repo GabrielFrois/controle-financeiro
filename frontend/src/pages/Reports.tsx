@@ -14,7 +14,6 @@ import {
   TrendingDown,
   ReceiptLong,
   Clear,
-  CalendarMonth
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -138,12 +137,10 @@ export default function Reports() {
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', mt: 10 }}><CircularProgress /></Box>;
 
   return (
-    <Box sx={{ pt: 2, px: 2, pb: 4, maxWidth: '1400px', margin: '0 auto' }}>
-      
-      {/* HEADER TELA */}
-      <Box className="no-print" sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 2 }}>
-        <Typography variant="h5" fontWeight="900" color="primary.main" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Assessment /> RELATÓRIOS E INDICADORES
+    <Box sx={{ pt: 4, px: 4, pb: 4, maxWidth: '1400px', margin: '0 auto' }}>
+      <Box className="no-print" sx={{ mb: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Typography variant="h4" fontWeight="900" sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Assessment fontSize="large" color="primary" /> Relatórios e Indicadores
         </Typography>
         <Stack direction="row" spacing={1}>
           <Button variant="outlined" startIcon={<PrintIcon />} onClick={() => window.print()} sx={{ borderRadius: '12px', fontWeight: 'bold', textTransform: 'none' }}>Imprimir</Button>
@@ -151,7 +148,7 @@ export default function Reports() {
         </Stack>
       </Box>
 
-      {/* FILTROS TELA */}
+      {/* FILTROS */}
       <Paper className="no-print" sx={{ p: 3, mb: 3, borderRadius: 5, boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
         <Grid container spacing={2}>
           <Grid size={{ xs: 12, md: 2 }}><TextField select fullWidth label="Tipo" size="small" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}><MenuItem value="Todos">Todos</MenuItem><MenuItem value="INCOME">Receitas</MenuItem><MenuItem value="EXPENSE">Despesas</MenuItem></TextField></Grid>
@@ -163,7 +160,7 @@ export default function Reports() {
         </Grid>
       </Paper>
 
-      {/* KPI CARDS TELA */}
+      {/* KPI CARDS */}
       <Grid container spacing={3} sx={{ mb: 4 }} justifyContent="center" className="no-print">
         <Grid item xs={12} sm={6} md={3}><KPICard title="Entradas" value={formatCurrency(stats.income)} icon={<TrendingUp />} color={theme.palette.success.main} /></Grid>
         <Grid item xs={12} sm={6} md={3}><KPICard title="Saídas" value={formatCurrency(stats.expense)} icon={<TrendingDown />} color={theme.palette.error.main} /></Grid>
@@ -171,7 +168,7 @@ export default function Reports() {
         <Grid item xs={12} sm={6} md={3}><KPICard title="Lançamentos" value={stats.count} icon={<ReceiptLong />} color="#607d8b" /></Grid>
       </Grid>
 
-      {/* TABELAS TELA */}
+      {/* TABELAS */}
       <Box className="no-print">
         <Grid container spacing={3} justifyContent="center">
           <Grid item xs={12} md={5}>

@@ -6,11 +6,12 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   FormControl, InputLabel, Select, TablePagination,
   Tabs, Tab, useTheme, ToggleButtonGroup, ToggleButton, List, ListItem, ListItemText, ListItemAvatar, Avatar, Divider,
-  FormControlLabel, Switch
+  FormControlLabel, Switch, Card, CardContent, CardActions, LinearProgress
 } from '@mui/material';
 import {
-  Add, Delete, Edit, Clear, ListAlt, Timeline, History, EmojiEvents, AccountBalance, Payments, Savings, Warning, HelpOutline,
-  ChevronLeft, ChevronRight, Today
+  Add, Delete, Edit, Clear, ListAlt, Timeline, History, EmojiEvents, Payments, Savings, Warning, HelpOutline,
+  ChevronLeft, ChevronRight, Today, CreditCard, AccountBalanceWallet, CheckCircle, ReceiptLong,
+  CalendarViewDay, CalendarViewWeek, CalendarMonth, Paid, ArrowDownward, ShoppingBag, EventRepeat
 } from '@mui/icons-material';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -21,7 +22,8 @@ import api from '../services/api';
 export default function Transactions() {
   const theme = useTheme();
   const [loading, setLoading] = useState(true);
-  const [tabValue, setTabValue] = useState(0);
+  
+  const [tabValue, setTabValue] = useState(0); 
   const [evolutionMode, setEvolutionMode] = useState<'daily' | 'weekly' | 'monthly'>('monthly');
   const [trendUserFilter, setTrendUserFilter] = useState('Todos');
   const [chartOffset, setChartOffset] = useState(0);
@@ -35,22 +37,26 @@ export default function Transactions() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editAllFuture, setEditAllFuture] = useState(false);
 
+  const [paymentMode, setPaymentMode] = useState<'DEBIT' | 'CREDIT'>('DEBIT');
+
+  // --- ESTADOS DA ABA DE FATURAS ---
+  const [selectedCardId, setSelectedCardId] = useState('');
+  const [invoiceMonth, setInvoiceMonth] = useState('');
+
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [transactionToDelete, setTransactionToDelete] = useState<any>(null);
 
   const now = new Date();
-  const oneYearAgo = new Date();
-  oneYearAgo.setFullYear(now.getFullYear() - 1);
-  const firstDayDefault = oneYearAgo.toISOString().split('T')[0];
-  const lastDayDefault = now.toISOString().split('T')[0];
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
 
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [categoryFilter, setCategoryFilter] = useState('Todas');
   const [userFilter, setUserFilter] = useState('Todos');
   const [typeFilter, setTypeFilter] = useState('Todos');
-  const [startDate, setStartDate] = useState(firstDayDefault);
-  const [endDate, setEndDate] = useState(lastDayDefault);
+  const [startDate, setStartDate] = useState(startOfMonth);
+  const [endDate, setEndDate] = useState(endOfMonth);
 
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({
@@ -69,11 +75,86 @@ export default function Transactions() {
       setTransactions(Array.isArray(transRes.data) ? transRes.data : []);
       setUsers(Array.isArray(userRes.data) ? userRes.data : []);
       setCategories(Array.isArray(catRes.data) ? catRes.data : []);
-      setPaymentMethods(Array.isArray(payRes.data) ? payRes.data : []);
+      
+      const pMethods = Array.isArray(payRes.data) ? payRes.data : [];
+      setPaymentMethods(pMethods);
+
+      const firstCard = pMethods.find((m: any) => m.closing_day);
+      if (firstCard) setSelectedCardId(firstCard.id);
+
     } catch (error) { console.error(error); } finally { setLoading(false); }
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  const getSmartInvoiceDate = useCallback((cardId: number) => {
+    const card = paymentMethods.find(m => m.id === cardId);
+    if (!card || !card.closing_day) return new Date().toISOString().slice(0, 7);
+
+    const today = new Date();
+    const currentDay = today.getDate();
+    
+    let currentInvoiceDate = new Date(today);
+    let isClosed = false;
+
+    if (currentDay < card.closing_day) {
+        currentInvoiceDate.setMonth(currentInvoiceDate.getMonth() + 1);
+        isClosed = false; 
+    } else {
+        currentInvoiceDate.setMonth(currentInvoiceDate.getMonth() + 1);
+        isClosed = true;
+    }
+    
+    const currentInvoiceStr = currentInvoiceDate.toISOString().slice(0, 7);
+
+    // Se aberta, mostra ela
+    if (!isClosed) return currentInvoiceStr;
+
+    // Se fechada, verifica se pagou
+    const debt = transactions
+        .filter(t => t.payment_method_id === cardId && t.date.startsWith(currentInvoiceStr) && t.type === 'EXPENSE')
+        .reduce((acc, t) => acc + Number(t.amount), 0);
+
+    const [year, month] = currentInvoiceStr.split('-');
+    const dateObj = new Date(Number(year), Number(month) - 1, 15);
+    const monthName = dateObj.toLocaleDateString('pt-BR', { month: 'long' });
+    const targetString = `${monthName}/${year}`.toLowerCase();
+
+    const paid = transactions
+        .filter(t => 
+            t.type === 'EXPENSE' &&
+            t.payment_method_id !== cardId && 
+            t.description.toLowerCase().includes('pagamento fatura') &&
+            t.description.toLowerCase().includes(card.name.toLowerCase()) &&
+            t.description.toLowerCase().includes(targetString)
+        )
+        .reduce((acc, t) => acc + Number(t.amount), 0);
+
+    const isPaid = (debt - paid) <= 1;
+
+    if (!isPaid) {
+        return currentInvoiceStr;
+    } else {
+        const nextInvoiceDate = new Date(currentInvoiceDate);
+        nextInvoiceDate.setMonth(nextInvoiceDate.getMonth() + 1);
+        return nextInvoiceDate.toISOString().slice(0, 7);
+    }
+  }, [paymentMethods, transactions]);
+
+  // Inicializa
+  useEffect(() => {
+    if (selectedCardId && paymentMethods.length > 0 && transactions.length > 0) {
+        if(invoiceMonth === '') {
+            setInvoiceMonth(getSmartInvoiceDate(Number(selectedCardId)));
+        }
+    }
+  }, [selectedCardId, paymentMethods, transactions, getSmartInvoiceDate, invoiceMonth]);
+
+  const handleSmartJump = () => {
+      if(selectedCardId) {
+          setInvoiceMonth(getSmartInvoiceDate(Number(selectedCardId)));
+      }
+  };
 
   const formatCurrency = (val: any) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(val) || 0);
 
@@ -83,11 +164,16 @@ export default function Transactions() {
     return new Date(pureDate + 'T12:00:00').toLocaleDateString('pt-BR');
   };
 
-  // Funções de ação
+  const formatRegistrationDate = (isoString: string) => {
+    if (!isoString) return "--/--";
+    return new Date(isoString).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+  };
+
   const handleOpenNew = () => {
     setIsEditing(false);
     setEditingId(null);
     setEditAllFuture(false);
+    setPaymentMode('DEBIT'); 
     setForm({
       description: '', amount: '', type: 'EXPENSE', category_id: '', user_id: '',
       date: new Date().toISOString().split('T')[0], payment_method_id: '', installments: '1',
@@ -96,10 +182,37 @@ export default function Transactions() {
     setOpen(true);
   };
 
+  const handlePayInvoice = (totalPending: number, dueDate: string) => {
+    const cardName = paymentMethods.find(m => m.id === Number(selectedCardId))?.name || 'Cartão';
+    const [year, month] = invoiceMonth.split('-');
+    const dateObj = new Date(Number(year), Number(month) - 1, 15); 
+    const monthName = dateObj.toLocaleDateString('pt-BR', { month: 'long' });
+    
+    setIsEditing(false);
+    setEditingId(null);
+    setEditAllFuture(false);
+    setPaymentMode('DEBIT'); 
+    
+    setForm({
+        description: `Pagamento Fatura ${cardName} - ${monthName}/${year}`,
+        amount: totalPending.toFixed(2),
+        type: 'EXPENSE',
+        category_id: '', 
+        user_id: '', 
+        date: new Date().toISOString().split('T')[0], 
+        payment_method_id: '', 
+        installments: '1',
+        asset_ticker: '', quantity: '', investment_type: 'OUTROS', yield_rate: ''
+    });
+    setOpen(true);
+  };
+
   const handleOpenEdit = (t: any) => {
     setIsEditing(true);
     setEditingId(t.id);
     setEditAllFuture(false);
+    const savedMethod = paymentMethods.find(m => m.id === t.payment_method_id);
+    setPaymentMode(savedMethod && savedMethod.closing_day ? 'CREDIT' : 'DEBIT');
     setForm({
       description: t.description.replace(/\s\(\d+\/\d+\)$/, ''),
       amount: t.amount,
@@ -145,6 +258,59 @@ export default function Transactions() {
     });
   }, [transactions, categoryFilter, userFilter, typeFilter, startDate, endDate]);
 
+  const creditCards = useMemo(() => paymentMethods.filter(m => m.closing_day), [paymentMethods]);
+
+  const invoiceData = useMemo(() => {
+    if (!selectedCardId || !invoiceMonth) return { items: [], payments: [], totalInvoice: 0, totalPaid: 0, dueDate: '', cardLimit: 0, totalUsedLimit: 0 };
+
+    const card = creditCards.find(c => c.id === Number(selectedCardId));
+    const cardName = card?.name || '';
+    const cardLimit = Number(card?.card_limit) || 0;
+
+    const items = transactions.filter(t => 
+        t.payment_method_id === Number(selectedCardId) &&
+        t.date.startsWith(invoiceMonth) &&
+        t.type === 'EXPENSE'
+    );
+
+    const [year, month] = invoiceMonth.split('-');
+    const dateObj = new Date(Number(year), Number(month) - 1, 15);
+    const monthName = dateObj.toLocaleDateString('pt-BR', { month: 'long' });
+    const targetString = `${monthName}/${year}`.toLowerCase();
+
+    const payments = transactions.filter(t => 
+        t.type === 'EXPENSE' &&
+        t.payment_method_id !== Number(selectedCardId) && 
+        t.description.toLowerCase().includes('pagamento fatura') &&
+        t.description.toLowerCase().includes(cardName.toLowerCase()) &&
+        t.description.toLowerCase().includes(targetString) 
+    );
+
+    const totalInvoice = items.reduce((acc, t) => acc + Number(t.amount), 0);
+    const totalPaid = payments.reduce((acc, t) => acc + Number(t.amount), 0);
+
+    const dueDay = card?.due_day || 10;
+    const dueDate = `${invoiceMonth}-${String(dueDay).padStart(2, '0')}`;
+
+    const allTimeSpend = transactions
+        .filter(t => t.payment_method_id === Number(selectedCardId) && t.type === 'EXPENSE')
+        .reduce((acc, t) => acc + Number(t.amount), 0);
+
+    const allTimePayments = transactions
+        .filter(t => 
+            t.type === 'EXPENSE' &&
+            t.payment_method_id !== Number(selectedCardId) && 
+            t.description.toLowerCase().includes('pagamento fatura') &&
+            t.description.toLowerCase().includes(cardName.toLowerCase())
+        )
+        .reduce((acc, t) => acc + Number(t.amount), 0);
+
+    const totalUsedLimit = Math.max(0, allTimeSpend - allTimePayments);
+
+    return { items, payments, totalInvoice, totalPaid, dueDate, cardLimit, totalUsedLimit };
+  }, [transactions, selectedCardId, invoiceMonth, creditCards]);
+
+
   const analyticsData = useMemo(() => {
     try {
       const today = new Date();
@@ -154,23 +320,17 @@ export default function Transactions() {
         const diff = (tDate.getFullYear() - today.getFullYear()) * 12 + (tDate.getMonth() - today.getMonth());
         return diff > max ? diff : max;
       }, 0);
-      const windowSize = 12;
-      const baseEnd = Math.min(6, maxFutureMonthDiff);
-      const endOffset = baseEnd + chartOffset;
-      const startOffset = endOffset - (windowSize - 1);
-      const firstMonthOfWindow = new Date(today.getFullYear(), today.getMonth() + startOffset, 1);
-      const isInvestment = (t: any) => t.category_name?.toLowerCase().includes('investimento');
+      
+      const futureHorizon = Math.max(0, Math.min(6, maxFutureMonthDiff));
+      const endOffset = futureHorizon + chartOffset;
+      const startOffset = endOffset - 11;
 
       let runningPatrimony = transactions
         .filter(t => {
-          const tDate = new Date((t.date || "").split('T')[0] + 'T12:00:00');
-          const isFromSelectedUser = trendUserFilter === 'Todos' || t.user_name === trendUserFilter;
-          return tDate < firstMonthOfWindow && isFromSelectedUser;
+            const tDate = new Date((t.date || "").split('T')[0] + 'T12:00:00');
+            return tDate < new Date(today.getFullYear(), today.getMonth() + startOffset, 1);
         })
-        .reduce((acc, t) => {
-          if (isInvestment(t)) return acc;
-          return t.type === 'INCOME' ? acc + Number(t.amount) : acc - Number(t.amount);
-        }, 0);
+        .reduce((acc, t) => t.type === 'INCOME' ? acc + Number(t.amount) : acc - Number(t.amount), 0);
 
       for (let i = startOffset; i <= endOffset; i++) {
         const d = new Date(today.getFullYear(), today.getMonth() + i, 1);
@@ -178,49 +338,84 @@ export default function Transactions() {
         const monthTrans = transactions.filter(t => t.date?.startsWith(monthYear) && (trendUserFilter === 'Todos' || t.user_name === trendUserFilter));
         const inc = monthTrans.filter(t => t.type === 'INCOME').reduce((a, b) => a + Number(b.amount), 0);
         const exp = monthTrans.filter(t => t.type === 'EXPENSE').reduce((a, b) => a + Number(b.amount), 0);
-        const patrimonyChange = monthTrans.filter(t => !isInvestment(t)).reduce((acc, t) => t.type === 'INCOME' ? acc + Number(t.amount) : acc - Number(t.amount), 0);
-        runningPatrimony += patrimonyChange;
+        runningPatrimony += (inc - exp);
         trendData.push({
           name: d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).toUpperCase(),
-          Patrimonio: runningPatrimony, Receitas: inc, Despesas: exp, isFuture: i > 0, isToday: i === 0
+          Patrimonio: runningPatrimony, Receitas: inc, Despesas: exp, isFuture: i > 0
         });
       }
 
-      let periodIncome = 0, periodExpense = 0;
+      const chartEndDate = new Date(); 
+      let chartStartDate = new Date();
+
+      if (evolutionMode === 'monthly') {
+         chartStartDate.setMonth(chartEndDate.getMonth() - 11);
+      } else if (evolutionMode === 'weekly') {
+         chartStartDate.setDate(chartEndDate.getDate() - (12 * 7));
+      } else {
+         chartStartDate.setDate(chartEndDate.getDate() - 30);
+      }
+      
+      const sDateStr = chartStartDate.toISOString().split('T')[0];
+      const eDateStr = chartEndDate.toISOString().split('T')[0];
+
+      const chartTransactions = transactions.filter(t => {
+          const tDate = t.date.split('T')[0];
+          const matchCat = categoryFilter === 'Todas' || t.category_name === categoryFilter;
+          const matchUser = userFilter === 'Todos' || t.user_name === userFilter;
+          const matchType = typeFilter === 'Todos' || t.type === typeFilter;
+          return matchCat && matchUser && matchType && tDate >= sDateStr && tDate <= eDateStr;
+      });
+
       const evolutionMap: any = {};
-      filteredTransactions.forEach(t => {
+      
+      chartTransactions.forEach(t => {
         const amt = Number(t.amount) || 0;
-        if (t.type === 'INCOME') periodIncome += amt;
-        else {
-          periodExpense += amt;
+        if (t.type === 'EXPENSE') { 
           const [year, month, day] = t.date.split('T')[0].split('-').map(Number);
           const dt = new Date(year, month - 1, day);
-          let sortKey = evolutionMode === 'daily' ? t.date.split('T')[0] : (evolutionMode === 'weekly' ? new Date(dt.setDate(dt.getDate() - dt.getDay())).toISOString().split('T')[0] : `${year}-${String(month).padStart(2, '0')}`);
-          let label = evolutionMode === 'daily' ? `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}` : (evolutionMode === 'weekly' ? `Sem. ${dt.getDate()}/${dt.getMonth() + 1}` : dt.toLocaleDateString('pt-BR', { month: 'short' }).toUpperCase());
+          let sortKey, label;
+          
+          if (evolutionMode === 'daily') {
+             sortKey = t.date.split('T')[0];
+             label = `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}`;
+          } else if (evolutionMode === 'weekly') {
+             const tempD = new Date(dt);
+             tempD.setDate(tempD.getDate() - tempD.getDay()); 
+             sortKey = tempD.toISOString().split('T')[0];
+             label = `Sem. ${tempD.getDate()}/${tempD.getMonth() + 1}`;
+          } else {
+             sortKey = `${year}-${String(month).padStart(2, '0')}`;
+             label = dt.toLocaleDateString('pt-BR', { month: 'short' }).toUpperCase();
+          }
+
           if (!evolutionMap[sortKey]) evolutionMap[sortKey] = { valor: 0, label };
           evolutionMap[sortKey].valor += amt;
         }
       });
 
+      const listExpense = filteredTransactions.filter(t => t.type === 'EXPENSE').reduce((a,b) => a + Number(b.amount), 0);
+      const listIncome = filteredTransactions.filter(t => t.type === 'INCOME').reduce((a,b) => a + Number(b.amount), 0);
+      
       const groupedExpensesMap = filteredTransactions.filter(t => t.type === 'EXPENSE').reduce((acc: any, t) => {
         const baseDescription = t.description.replace(/\s\(\d+\/\d+\)$/, '');
-        if (!acc[baseDescription]) acc[baseDescription] = { ...t, description: baseDescription, amount: 0, count: 0 };
+        if (!acc[baseDescription]) acc[baseDescription] = { ...t, description: baseDescription, amount: 0 };
         acc[baseDescription].amount += Number(t.amount);
-        acc[baseDescription].count += 1;
         return acc;
       }, {});
 
-      const dailyBase = periodExpense / Math.max(1, Math.ceil(Math.abs(new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1);
-
       return {
         trendData,
-        lineData: Object.keys(evolutionMap).sort().map(k => evolutionMap[k]),
+        lineData: Object.keys(evolutionMap).sort().map(k => evolutionMap[k]), 
         top5: Object.values(groupedExpensesMap).sort((a: any, b: any) => b.amount - a.amount).slice(0, 5),
-        avgWeekly: dailyBase * 7, avgMonthly: dailyBase * 30, totalPeriodo: periodExpense, savingsTotal: periodIncome - periodExpense,
-        projectedSavings: (transactions.filter(t => t.date.startsWith(today.toISOString().substring(0, 7))).reduce((acc, t) => t.type === 'INCOME' ? acc + Number(t.amount) : acc - Number(t.amount), 0) / Math.max(1, today.getDate())) * 30
+        avgWeekly: listExpense / 4, 
+        avgMonthly: listExpense, 
+        totalPeriodo: listExpense, 
+        savingsTotal: listIncome - listExpense,
+        projectedSavings: 0 
       };
     } catch (e) { return { trendData: [], lineData: [], top5: [], avgWeekly: 0, avgMonthly: 0, totalPeriodo: 0, savingsTotal: 0, projectedSavings: 0 }; }
-  }, [transactions, filteredTransactions, evolutionMode, trendUserFilter, chartOffset, startDate, endDate]);
+  }, [transactions, filteredTransactions, evolutionMode, trendUserFilter, chartOffset, startDate, endDate, categoryFilter, userFilter, typeFilter]);
 
   const handleOpenDelete = (transaction: any) => { setTransactionToDelete(transaction); setDeleteDialogOpen(true); };
 
@@ -234,6 +429,14 @@ export default function Transactions() {
 
   const isInvestmentForm = useMemo(() => categories.find(c => c.id === form.category_id)?.name.toLowerCase().includes('investimento'), [form.category_id, categories]);
 
+  const availablePaymentMethods = useMemo(() => {
+    return paymentMethods.filter(m => {
+      if (!m.active) return false;
+      if (paymentMode === 'CREDIT') return m.closing_day != null; 
+      return m.closing_day == null; 
+    });
+  }, [paymentMethods, paymentMode]);
+
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', mt: 10 }}><CircularProgress /></Box>;
 
   return (
@@ -241,70 +444,217 @@ export default function Transactions() {
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)}>
           <Tab icon={<ListAlt />} iconPosition="start" label="Registros" />
+          <Tab icon={<ReceiptLong />} iconPosition="start" label="Faturas" />
           <Tab icon={<Timeline />} iconPosition="start" label="Análise de Período" />
-          <Tab icon={<History />} iconPosition="start" label="Tendência e Projeção" />
+          <Tab icon={<History />} iconPosition="start" label="Tendência" />
         </Tabs>
-        {tabValue === 0 && <Button variant="contained" startIcon={<Add />} sx={{ borderRadius: '10px' }} onClick={handleOpenNew}>Novo Lançamento</Button>}
+        {(tabValue === 0) && <Button variant="contained" startIcon={<Add />} sx={{ borderRadius: '10px' }} onClick={handleOpenNew}>Novo Lançamento</Button>}
       </Box>
 
-      {/* BLOCO DE FILTROS */}
-      {tabValue < 2 && (
-        <Paper sx={{ p: 3, mb: 3, borderRadius: 5, boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
-          <Grid container spacing={2}>
-            <Grid size={{ xs: 12, md: 2 }}><TextField select fullWidth label="Tipo" size="small" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}><MenuItem value="Todos">Todos</MenuItem><MenuItem value="INCOME">Receitas</MenuItem><MenuItem value="EXPENSE">Despesas</MenuItem></TextField></Grid>
-            <Grid size={{ xs: 12, md: 2 }}><TextField select fullWidth label="Categoria" size="small" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}><MenuItem value="Todas">Todas</MenuItem>{categories.map(c => <MenuItem key={c.id} value={c.name}>{c.name}</MenuItem>)}</TextField></Grid>
-            <Grid size={{ xs: 12, md: 2 }}><TextField select fullWidth label="Usuário" size="small" value={userFilter} onChange={(e) => setUserFilter(e.target.value)}><MenuItem value="Todos">Todos</MenuItem>{users.map(u => <MenuItem key={u.id} value={u.name}>{u.name}</MenuItem>)}</TextField></Grid>
-            <Grid size={{ xs: 12, md: 2 }}><TextField fullWidth type="date" label="Início" size="small" InputLabelProps={{ shrink: true }} value={startDate} onChange={(e) => setStartDate(e.target.value)} /></Grid>
-            <Grid size={{ xs: 12, md: 2 }}><TextField fullWidth type="date" label="Fim" size="small" InputLabelProps={{ shrink: true }} value={endDate} onChange={(e) => setEndDate(e.target.value)} /></Grid>
-            <Grid size={{ xs: 12, md: 2 }}><Button fullWidth startIcon={<Clear />} onClick={() => { setStartDate(firstDayDefault); setEndDate(lastDayDefault); setCategoryFilter('Todas'); setUserFilter('Todos'); }}>Reset</Button></Grid>
-          </Grid>
-        </Paper>
-      )}
-
-      {/* REGISTROS */}
+      {/* --- ABA 0: Registros --- */}
       {tabValue === 0 && (
-        <TableContainer component={Paper} sx={{ borderRadius: 5 }}>
-          <Table>
-            <TableHead sx={{ bgcolor: 'action.hover' }}>
-              <TableRow>
-                <TableCell sx={{ fontWeight: 900 }}>DATA</TableCell>
-                <TableCell sx={{ fontWeight: 900 }}>USUÁRIO</TableCell>
-                <TableCell sx={{ fontWeight: 900 }}>DESCRIÇÃO</TableCell>
-                <TableCell sx={{ fontWeight: 900 }}>CATEGORIA</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 900 }}>VALOR</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 900 }}>AÇÕES</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {filteredTransactions.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map((t) => (
-                <TableRow key={t.id} hover>
-                  <TableCell>{safeFormatDate(t.date)}</TableCell>
-                  <TableCell><Chip label={t.user_name} size="small" variant="outlined" sx={{ fontWeight: 'bold', borderColor: t.user_color, color: t.user_color }} /></TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>{t.description}</TableCell>
-                  <TableCell><Chip label={t.category_name} size="small" variant="outlined" sx={{ fontWeight: 'bold', borderColor: t.category_color, color: t.category_color, fontSize: '0.65rem' }} /></TableCell>
-                  <TableCell align="right"><Typography fontWeight="900" color={t.type === 'INCOME' ? 'success.main' : 'error.main'}>{formatCurrency(t.amount)}</Typography></TableCell>
-                  <TableCell align="center">
-                    <Stack direction="row" spacing={1} justifyContent="center">
-                      <IconButton size="small" color="primary" onClick={() => handleOpenEdit(t)}>
-                        <Edit fontSize="small" />
-                      </IconButton>
-                      <IconButton size="small" color="error" onClick={() => handleOpenDelete(t)}>
-                        <Delete fontSize="small" />
-                      </IconButton>
-                    </Stack>
-                  </TableCell>
+        <>
+           <Paper sx={{ p: 3, mb: 3, borderRadius: 5, boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
+            <Grid container spacing={2}>
+                <Grid size={{ xs: 12, md: 2 }}><TextField select fullWidth label="Tipo" size="small" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}><MenuItem value="Todos">Todos</MenuItem><MenuItem value="INCOME">Receitas</MenuItem><MenuItem value="EXPENSE">Despesas</MenuItem></TextField></Grid>
+                <Grid size={{ xs: 12, md: 2 }}><TextField select fullWidth label="Categoria" size="small" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}><MenuItem value="Todas">Todas</MenuItem>{categories.map(c => <MenuItem key={c.id} value={c.name}>{c.name}</MenuItem>)}</TextField></Grid>
+                <Grid size={{ xs: 12, md: 2 }}><TextField select fullWidth label="Usuário" size="small" value={userFilter} onChange={(e) => setUserFilter(e.target.value)}><MenuItem value="Todos">Todos</MenuItem>{users.map(u => <MenuItem key={u.id} value={u.name}>{u.name}</MenuItem>)}</TextField></Grid>
+                <Grid size={{ xs: 12, md: 2 }}><TextField fullWidth type="date" label="Início" size="small" InputLabelProps={{ shrink: true }} value={startDate} onChange={(e) => setStartDate(e.target.value)} /></Grid>
+                <Grid size={{ xs: 12, md: 2 }}><TextField fullWidth type="date" label="Fim" size="small" InputLabelProps={{ shrink: true }} value={endDate} onChange={(e) => setEndDate(e.target.value)} /></Grid>
+                <Grid size={{ xs: 12, md: 2 }}><Button fullWidth startIcon={<Clear />} onClick={() => { setStartDate(startOfMonth); setEndDate(endOfMonth); setCategoryFilter('Todas'); setUserFilter('Todos'); }}>Reset</Button></Grid>
+            </Grid>
+           </Paper>
+
+            <TableContainer component={Paper} sx={{ borderRadius: 5 }}>
+            <Table>
+                <TableHead sx={{ bgcolor: 'action.hover' }}>
+                <TableRow>
+                    <TableCell sx={{ fontWeight: 900 }}>DATA</TableCell>
+                    <TableCell sx={{ fontWeight: 900 }}>USUÁRIO</TableCell>
+                    <TableCell sx={{ fontWeight: 900 }}>DESCRIÇÃO</TableCell>
+                    <TableCell sx={{ fontWeight: 900 }}>CATEGORIA</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 900 }}>VALOR</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 900 }}>AÇÕES</TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-          <TablePagination component="div" count={filteredTransactions.length} rowsPerPage={rowsPerPage} page={page} onPageChange={(_, p) => setPage(p)} onRowsPerPageChange={e => setRowsPerPage(parseInt(e.target.value, 10))} />
-        </TableContainer>
+                </TableHead>
+                <TableBody>
+                {filteredTransactions.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map((t) => (
+                    <TableRow key={t.id} hover>
+                    <TableCell>{safeFormatDate(t.date)}</TableCell>
+                    <TableCell><Chip label={t.user_name} size="small" variant="outlined" sx={{ fontWeight: 'bold', borderColor: t.user_color, color: t.user_color }} /></TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>{t.description}</TableCell>
+                    <TableCell><Chip label={t.category_name} size="small" variant="outlined" sx={{ fontWeight: 'bold', borderColor: t.category_color, color: t.category_color, fontSize: '0.65rem' }} /></TableCell>
+                    <TableCell align="right"><Typography fontWeight="900" color={t.type === 'INCOME' ? 'success.main' : 'error.main'}>{formatCurrency(t.amount)}</Typography></TableCell>
+                    <TableCell align="center">
+                        <Stack direction="row" spacing={1} justifyContent="center">
+                        <IconButton size="small" color="primary" onClick={() => handleOpenEdit(t)}><Edit fontSize="small" /></IconButton>
+                        <IconButton size="small" color="error" onClick={() => handleOpenDelete(t)}><Delete fontSize="small" /></IconButton>
+                        </Stack>
+                    </TableCell>
+                    </TableRow>
+                ))}
+                </TableBody>
+            </Table>
+            <TablePagination component="div" count={filteredTransactions.length} rowsPerPage={rowsPerPage} page={page} onPageChange={(_, p) => setPage(p)} onRowsPerPageChange={e => setRowsPerPage(parseInt(e.target.value, 10))} />
+            </TableContainer>
+        </>
       )}
 
-      {/* ANÁLISE DE PERÍODO */}
+      {/* --- ABA 1: GESTÃO DE FATURAS --- */}
       {tabValue === 1 && (
         <Grid container spacing={3}>
-          <Grid size={{ xs: 12, md: 7 }}><Paper sx={{ p: 3, borderRadius: 5 }}><Typography variant="h6" fontWeight="900" mb={3} display="flex" alignItems="center" gap={1}><Payments color="primary" /> RESUMO FINANCEIRO</Typography><Grid container spacing={2}>{[{ label: 'MÉDIA SEMANAL', val: analyticsData.avgWeekly, color: 'text.secondary' }, { label: 'MÉDIA MENSAL', val: analyticsData.avgMonthly, color: 'text.secondary' }, { label: 'TOTAL NO PERÍODO', val: analyticsData.totalPeriodo, color: 'error.main' }].map((item) => (<Grid size={{ xs: 12, sm: 4 }} key={item.label}><Box sx={{ p: 2, borderRadius: 3, bgcolor: 'action.hover', textAlign: 'center' }}><Typography variant="caption" fontWeight="bold" color="text.secondary">{item.label}</Typography><Typography variant="h6" fontWeight="900" color={item.color}>{formatCurrency(item.val)}</Typography></Box></Grid>))}</Grid></Paper></Grid>
+            <Grid size={{ xs: 12 }}>
+                <Paper sx={{ p: 3, borderRadius: 5, display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <FormControl sx={{ minWidth: 200 }} size="small">
+                        <InputLabel>Selecione o Cartão</InputLabel>
+                        <Select value={selectedCardId} label="Selecione o Cartão" onChange={(e) => setSelectedCardId(e.target.value)}>
+                            {creditCards.length === 0 && <MenuItem disabled>Nenhum cartão cadastrado</MenuItem>}
+                            {creditCards.map(c => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+                        </Select>
+                    </FormControl>
+                    <TextField 
+                        type="month" 
+                        label="Mês de Vencimento" 
+                        size="small" 
+                        value={invoiceMonth} 
+                        onChange={(e) => setInvoiceMonth(e.target.value)}
+                        InputLabelProps={{ shrink: true }}
+                    />
+                    <Button 
+                        variant="outlined" 
+                        startIcon={<EventRepeat />}
+                        color="primary"
+                        onClick={handleSmartJump}
+                        sx={{ ml: 'auto', height: 40, fontWeight: 'bold' }}
+                    >
+                        Fatura Atual
+                    </Button>
+                </Paper>
+            </Grid>
+
+            {/* RESUMO DA FATURA */}
+            <Grid size={{ xs: 12, md: 4 }}>
+                <Card sx={{ borderRadius: 5, height: '100%', bgcolor: 'primary.main', color: 'white', display: 'flex', flexDirection: 'column', boxShadow: 6 }}>
+                    <CardContent sx={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', py: 4 }}>
+                        <CreditCard sx={{ fontSize: 60, mb: 1, opacity: 0.9 }} />
+                        <Typography variant="overline" sx={{ opacity: 0.8, letterSpacing: 3, fontWeight: 'bold' }}>TOTAL A PAGAR</Typography>
+                        
+                        <Typography variant="h3" fontWeight="900" sx={{ my: 1 }}>{formatCurrency(Math.max(0, invoiceData.totalInvoice - invoiceData.totalPaid))}</Typography>
+                        
+                        {invoiceData.totalPaid > 0 && (
+                            <Chip size="small" label={`Já Pago: ${formatCurrency(invoiceData.totalPaid)}`} sx={{ bgcolor: 'success.main', color: 'white', fontWeight: 'bold', mt: 1 }} />
+                        )}
+
+                        <Typography variant="caption" sx={{ mt: 2, opacity: 0.8 }}>Vencimento: {invoiceData.dueDate ? new Date(invoiceData.dueDate + 'T12:00:00').toLocaleDateString('pt-BR') : '--'}</Typography>
+
+                        {/* BARRA DE LIMITE */}
+                        {invoiceData.cardLimit > 0 && (
+                            <Box sx={{ width: '100%', mt: 4 }}>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5, px: 1 }}>
+                                    <Typography variant="caption" sx={{ fontWeight: 'bold' }}>Limite Usado</Typography>
+                                    <Typography variant="caption">{Math.min(100, (invoiceData.totalUsedLimit / invoiceData.cardLimit) * 100).toFixed(0)}%</Typography>
+                                </Box>
+                                <LinearProgress 
+                                    variant="determinate" 
+                                    value={Math.min(100, (invoiceData.totalUsedLimit / invoiceData.cardLimit) * 100)} 
+                                    sx={{ height: 8, borderRadius: 4, bgcolor: 'rgba(255,255,255,0.3)', '& .MuiLinearProgress-bar': { bgcolor: invoiceData.totalUsedLimit > invoiceData.cardLimit ? 'error.main' : 'secondary.main' } }}
+                                />
+                                <Typography variant="caption" sx={{ display: 'block', textAlign: 'center', mt: 0.5, opacity: 0.8 }}>
+                                    {formatCurrency(invoiceData.totalUsedLimit)} / {formatCurrency(invoiceData.cardLimit)}
+                                </Typography>
+                            </Box>
+                        )}
+                    </CardContent>
+                    <CardActions sx={{ p: 3, justifyContent: 'center', bgcolor: 'rgba(0,0,0,0.1)' }}>
+                        <Button 
+                            variant="contained" 
+                            color="secondary" 
+                            size="large"
+                            fullWidth
+                            startIcon={<CheckCircle />}
+                            onClick={() => handlePayInvoice(invoiceData.totalInvoice - invoiceData.totalPaid, invoiceData.dueDate)}
+                            disabled={invoiceData.totalInvoice - invoiceData.totalPaid <= 0.01}
+                            sx={{ fontWeight: 'bold', py: 1.5, borderRadius: 3, boxShadow: 'none' }}
+                        >
+                            PAGAR
+                        </Button>
+                    </CardActions>
+                </Card>
+            </Grid>
+
+            {/* TABELA DE FATURA */}
+            <Grid size={{ xs: 12, md: 8 }}>
+                
+                {/* 1. SEÇÃO DE PAGAMENTOS */}
+                {invoiceData.payments.length > 0 && (
+                    <Paper sx={{ mb: 2, borderRadius: 4, overflow: 'hidden', border: '1px solid', borderColor: 'success.light' }}>
+                        <Box sx={{ bgcolor: 'success.light', p: 1, px: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Paid sx={{ color: 'white', fontSize: 20 }} />
+                            <Typography variant="subtitle2" color="white" fontWeight="bold">PAGAMENTOS EFETUADOS</Typography>
+                        </Box>
+                        <List dense>
+                            {invoiceData.payments.map(p => (
+                                <ListItem key={p.id} sx={{ borderBottom: '1px dashed #e0e0e0' }}>
+                                    <ListItemText primary={p.description} secondary={`Data do Pagamento: ${new Date(p.date).toLocaleDateString('pt-BR')}`} />
+                                    <Typography fontWeight="bold" color="success.main">-{formatCurrency(p.amount)}</Typography>
+                                    <IconButton size="small" color="error" onClick={() => handleOpenDelete(p)} sx={{ ml: 1 }}><Delete fontSize="small" /></IconButton>
+                                </ListItem>
+                            ))}
+                        </List>
+                        <Box sx={{ bgcolor: '#f1f8e9', p: 0.5, textAlign: 'center' }}>
+                            <ArrowDownward color="success" fontSize="small" />
+                        </Box>
+                    </Paper>
+                )}
+
+                {/* 2. SEÇÃO DE LANÇAMENTOS */}
+                <TableContainer component={Paper} sx={{ borderRadius: 5, maxHeight: 600 }}>
+                    <Box sx={{ p: 2, bgcolor: 'action.hover', borderBottom: 1, borderColor: 'divider' }}>
+                        <Typography variant="subtitle2" fontWeight="bold" display="flex" alignItems="center" gap={1}>
+                            <ShoppingBag fontSize="small" color="primary"/> DETALHES DA FATURA
+                        </Typography>
+                    </Box>
+                    <Table stickyHeader>
+                        <TableHead>
+                            <TableRow>
+                                <TableCell>Data</TableCell>
+                                <TableCell>Descrição</TableCell>
+                                <TableCell>Quem</TableCell>
+                                <TableCell align="right">Valor</TableCell>
+                                <TableCell align="center">Editar</TableCell>
+                            </TableRow>
+                        </TableHead>
+                        <TableBody>
+                            {invoiceData.items.length === 0 && (
+                                <TableRow><TableCell colSpan={5} align="center" sx={{ py: 5, color: 'text.secondary' }}>
+                                    <Typography variant="body1">Nenhuma compra nesta fatura.</Typography>
+                                </TableCell></TableRow>
+                            )}
+                            {/* Ordenar por data de criação para ficar cronológico */}
+                            {invoiceData.items.sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).map(t => (
+                                <TableRow key={t.id} hover>
+                                    <TableCell sx={{ color: 'text.primary', fontSize: '0.85rem' }}>
+                                        {formatRegistrationDate(t.created_at)}
+                                    </TableCell>
+                                    <TableCell sx={{ fontWeight: 600 }}>{t.description}</TableCell>
+                                    <TableCell><Chip label={t.user_name} size="small" sx={{ height: 20, fontSize: '0.7rem' }} /></TableCell>
+                                    <TableCell align="right" sx={{ fontWeight: 'bold' }}>{formatCurrency(t.amount)}</TableCell>
+                                    <TableCell align="center">
+                                        <IconButton size="small" onClick={() => handleOpenEdit(t)}><Edit fontSize="small" /></IconButton>
+                                    </TableCell>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
+                </TableContainer>
+            </Grid>
+        </Grid>
+      )}
+
+      {/* --- ABA 2: ANÁLISE --- */}
+      {tabValue === 2 && (
+        <Grid container spacing={3}>
+          <Grid size={{ xs: 12, md: 7 }}><Paper sx={{ p: 3, borderRadius: 5 }}><Typography variant="h6" fontWeight="900" mb={3} display="flex" alignItems="center" gap={1}><Payments color="primary" /> RESUMO</Typography><Grid container spacing={2}>{[{ label: 'MÉDIA SEMANAL', val: analyticsData.avgWeekly, color: 'text.secondary' }, { label: 'MÉDIA MENSAL', val: analyticsData.avgMonthly, color: 'text.secondary' }, { label: 'TOTAL NO PERÍODO', val: analyticsData.totalPeriodo, color: 'error.main' }].map((item) => (<Grid size={{ xs: 12, sm: 4 }} key={item.label}><Box sx={{ p: 2, borderRadius: 3, bgcolor: 'action.hover', textAlign: 'center' }}><Typography variant="caption" fontWeight="bold" color="text.secondary">{item.label}</Typography><Typography variant="h6" fontWeight="900" color={item.color}>{formatCurrency(item.val)}</Typography></Box></Grid>))}</Grid></Paper></Grid>
           <Grid size={{ xs: 12, md: 5 }}><Paper sx={{ p: 3, borderRadius: 5, bgcolor: `${theme.palette.success.main}08`, border: '1px solid', borderColor: theme.palette.success.light }}><Typography variant="h6" fontWeight="900" mb={3} display="flex" alignItems="center" gap={1}><Savings color="success" /> ECONOMIA</Typography><Stack spacing={2}><Box sx={{ display: 'flex', justifyContent: 'space-between' }}><Typography variant="body2" fontWeight="bold">NO PERÍODO:</Typography><Typography variant="h5" fontWeight="900" color="success.main">{formatCurrency(analyticsData.savingsTotal)}</Typography></Box><Divider /><Box sx={{ display: 'flex', justifyContent: 'space-between' }}><Typography variant="body2" fontWeight="bold">PROJEÇÃO FINAL DO MÊS:</Typography><Typography variant="h6" fontWeight="900">{formatCurrency(analyticsData.projectedSavings)}</Typography></Box></Stack></Paper></Grid>
           <Grid size={{ xs: 12, md: 4 }}><Paper sx={{ p: 3, borderRadius: 5, height: 480 }}><Typography variant="h6" fontWeight="900" mb={2}><EmojiEvents color="warning" /> MAIORES GASTOS </Typography>
             <List>
@@ -317,12 +667,12 @@ export default function Transactions() {
               ))}
             </List>
           </Paper></Grid>
-          <Grid size={{ xs: 12, md: 8 }}><Paper sx={{ p: 3, borderRadius: 5, height: 480 }}><Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3 }}><Typography variant="h6" fontWeight="bold">Evolução de Gastos</Typography><ToggleButtonGroup size="small" value={evolutionMode} exclusive onChange={(_, v) => v && setEvolutionMode(v)}><ToggleButton value="daily">Dia</ToggleButton><ToggleButton value="weekly">Sem</ToggleButton><ToggleButton value="monthly">Mês</ToggleButton></ToggleButtonGroup></Box><Box sx={{ height: 350 }}><ResponsiveContainer width="100%" height="100%"><LineChart data={analyticsData.lineData}><CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.5} /><XAxis dataKey="label" tick={{ fontSize: 11 }} /><YAxis hide /><Tooltip formatter={(v: any) => [formatCurrency(v), "Gasto"]} /><Line type="monotone" dataKey="valor" stroke={theme.palette.error.main} strokeWidth={3} dot={{ r: 4 }} /></LineChart></ResponsiveContainer></Box></Paper></Grid>
+          <Grid size={{ xs: 12, md: 8 }}><Paper sx={{ p: 3, borderRadius: 5, height: 480 }}><Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3 }}><Typography variant="h6" fontWeight="bold">Evolução de Gastos</Typography><ToggleButtonGroup size="small" value={evolutionMode} exclusive onChange={(_, v) => v && setEvolutionMode(v)}><ToggleButton value="daily"><CalendarViewDay fontSize="small" sx={{ mr: 1 }}/> Dia</ToggleButton><ToggleButton value="weekly"><CalendarViewWeek fontSize="small" sx={{ mr: 1 }}/> Sem</ToggleButton><ToggleButton value="monthly"><CalendarMonth fontSize="small" sx={{ mr: 1 }}/> Mês</ToggleButton></ToggleButtonGroup></Box><Box sx={{ height: 350 }}><ResponsiveContainer width="100%" height="100%"><LineChart data={analyticsData.lineData}><CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.5} /><XAxis dataKey="label" tick={{ fontSize: 11 }} /><YAxis hide /><Tooltip formatter={(v: any) => [formatCurrency(v), "Gasto"]} /><Line type="monotone" dataKey="valor" stroke={theme.palette.error.main} strokeWidth={3} dot={{ r: 4 }} /></LineChart></ResponsiveContainer></Box></Paper></Grid>
         </Grid>
       )}
 
-      {/* TENDÊNCIA E PROJEÇÃO */}
-      {tabValue === 2 && (
+      {/* --- ABA 3: TENDÊNCIA E PROJEÇÃO --- */}
+      {tabValue === 3 && (
         <Grid container spacing={3}>
           <Grid size={{ xs: 12 }}>
             <Paper sx={{ p: 2, borderRadius: 5, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
@@ -381,16 +731,70 @@ export default function Transactions() {
                   {categories.filter(c => c.active && c.type === form.type).map(c => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
                 </Select>
               </FormControl>
-              <FormControl fullWidth required><InputLabel>Método de Pagamento</InputLabel>
-                <Select value={form.payment_method_id} label="Método" onChange={(e) => setForm({ ...form, payment_method_id: e.target.value })}>
-                  {paymentMethods.map(m => <MenuItem key={m.id} value={m.id}>{m.name}</MenuItem>)}
-                </Select>
-              </FormControl>
-              {paymentMethods.find(m => m.id === form.payment_method_id)?.name === 'Crédito' && !isEditing && (
-                <TextField fullWidth type="number" label="Parcelas" value={form.installments} onChange={(e) => setForm({ ...form, installments: e.target.value })} />
-              )}
+              
+              <Divider sx={{ my: 1 }}><Chip label="PAGAMENTO" size="small" /></Divider>
+
+              {/* SELETOR DE MODO DE PAGAMENTO */}
+              <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
+                <ToggleButtonGroup
+                    color="primary"
+                    value={paymentMode}
+                    exclusive
+                    onChange={(_, val) => {
+                        if (val) {
+                            setPaymentMode(val);
+                            setForm({ ...form, payment_method_id: '' });
+                        }
+                    }}
+                    size="small"
+                >
+                    <ToggleButton value="DEBIT" sx={{ px: 3 }}>
+                        <AccountBalanceWallet sx={{ mr: 1, fontSize: 20 }} /> À VISTA / DÉBITO
+                    </ToggleButton>
+                    <ToggleButton value="CREDIT" sx={{ px: 3 }}>
+                        <CreditCard sx={{ mr: 1, fontSize: 20 }} /> CRÉDITO PARCELADO
+                    </ToggleButton>
+                </ToggleButtonGroup>
+              </Box>
+
+              <Grid container spacing={2}>
+                  <Grid size={{ xs: (paymentMode === 'CREDIT' && !isEditing) ? 8 : 12 }}>
+                    <FormControl fullWidth required>
+                        <InputLabel>{paymentMode === 'CREDIT' ? "Cartão de Crédito" : "Conta / Carteira"}</InputLabel>
+                        <Select
+                            value={form.payment_method_id}
+                            label={paymentMode === 'CREDIT' ? "Cartão de Crédito" : "Conta / Carteira"}
+                            onChange={(e) => setForm({ ...form, payment_method_id: e.target.value })}
+                        >
+                            {availablePaymentMethods.length === 0 && (
+                                <MenuItem disabled value="">
+                                    {paymentMode === 'CREDIT' ? "Nenhum cartão cadastrado" : "Nenhuma conta encontrada"}
+                                </MenuItem>
+                            )}
+                            {availablePaymentMethods.map(m => (
+                                <MenuItem key={m.id} value={m.id}>{m.name}</MenuItem>
+                            ))}
+                        </Select>
+                    </FormControl>
+                  </Grid>
+
+                  {/* Campo de Parcelas */}
+                  {paymentMode === 'CREDIT' && !isEditing && (
+                    <Grid size={{ xs: 4 }}>
+                      <TextField 
+                        fullWidth 
+                        type="number" 
+                        label="Parcelas" 
+                        value={form.installments} 
+                        onChange={(e) => setForm({ ...form, installments: e.target.value })} 
+                        InputProps={{ inputProps: { min: 1 } }}
+                      />
+                    </Grid>
+                  )}
+              </Grid>
+
               {isInvestmentForm && (
-                <Grid container spacing={2}>
+                <Grid container spacing={2} sx={{ mt: 1 }}>
                   <Grid item xs={12}>
                     <TextField
                       select
@@ -408,7 +812,6 @@ export default function Transactions() {
                     </TextField>
                   </Grid>
 
-                  {/* Lógica Condicional */}
                   {form.investment_type === 'RENDA_FIXA' ? (
                     <Grid item xs={12}>
                       <TextField

@@ -1,5 +1,14 @@
 import { Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Toolbar, Typography, Divider, IconButton, Box, useTheme } from '@mui/material';
-import { Dashboard, SwapHoriz, Settings, PieChart, Assessment, Brightness4, Brightness7, Savings } from '@mui/icons-material';
+import { 
+  Dashboard, 
+  SwapHoriz, 
+  Settings, 
+  TrackChanges,
+  Assessment, 
+  Brightness4, 
+  Brightness7, 
+  Savings 
+} from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 
 const drawerWidth = 240;
@@ -18,7 +27,7 @@ export default function Sidebar({ toggleTheme, mode }: SidebarProps) {
     { text: 'Dashboard', icon: <Dashboard />, path: '/' },
     { text: 'Transações', icon: <SwapHoriz />, path: '/transactions' },
     { text: 'Investimentos', icon: <Savings />, path: '/investments' },
-    { text: 'Metas', icon: <PieChart />, path: '/budgets' },
+    { text: 'Metas', icon: <TrackChanges />, path: '/budgets' },
     { text: 'Relatórios', icon: <Assessment />, path: '/reports' },
     { text: 'Gestão', icon: <Settings />, path: '/management' },
   ];

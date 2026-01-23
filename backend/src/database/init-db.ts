@@ -86,6 +86,7 @@ const categories = [
   { name: "Seguro de Vida", type: "EXPENSE", color: "#78909C" },
   { name: "Impostos (IPTU/IR)", type: "EXPENSE", color: "#90A4AE" },
   { name: "Doações", type: "EXPENSE", color: "#37474F" },
+  { name: "Pagamento de Fatura", type: "EXPENSE", color: "#5591af" },
   { name: "Outras Despesas", type: "EXPENSE", color: "#263238" }
 ];
 

@@ -3,9 +3,9 @@ import {
   Box, Typography, LinearProgress, Paper, Grid, CircularProgress, 
   useTheme, Button, Dialog, DialogTitle, DialogContent, 
   DialogActions, TextField, MenuItem, IconButton, Stack,
-  Divider, Tooltip
+  Divider
 } from '@mui/material';
-import { Add, Delete, Edit, Warning, CalendarMonth, QueryStats, HelpOutline } from '@mui/icons-material';
+import { Add, Delete, Edit, Warning, CalendarMonth, QueryStats, HelpOutline, TrackChanges } from '@mui/icons-material';
 import api from '../services/api';
 
 export default function Budgets() {
@@ -19,7 +19,6 @@ export default function Budgets() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState({ category_id: '', amount: '', period: 'MONTHLY' });
 
-  // ESTADOS PARA EXCLUSÃO
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [budgetToDelete, setBudgetToDelete] = useState<any>(null);
 
@@ -190,15 +189,20 @@ export default function Budgets() {
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', mt: 10 }}><CircularProgress /></Box>;
 
   return (
-    <Box sx={{ pt: 4, px: 3, pb: 4, maxWidth: '1300px', margin: '0 auto' }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={4}>
-        <Box>
-          <Typography variant="h4" fontWeight="900">Metas Financeiras</Typography>
-        </Box>
-        <Button variant="contained" startIcon={<Add />} onClick={() => handleOpen()} sx={{ borderRadius: 3, px: 3, fontWeight: 'bold' }}>
+    <Box sx={{ pt: 4, px: 4, pb: 4, maxWidth: '1400px', margin: '0 auto' }}>
+      <Box sx={{ mb: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Typography variant="h4" fontWeight="900" sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <TrackChanges fontSize="large" color="primary" /> Metas Financeiras
+        </Typography>
+        <Button 
+            variant="contained" 
+            startIcon={<Add />} 
+            onClick={() => handleOpen()} 
+            sx={{ borderRadius: 3, px: 3, fontWeight: 'bold' }}
+        >
           Nova Meta
         </Button>
-      </Stack>
+      </Box>
 
       <Typography variant="h6" fontWeight="900" mb={3} display="flex" alignItems="center" gap={1}>
         <CalendarMonth color="primary" /> MENSAIS

@@ -234,7 +234,7 @@ export default function Dashboard() {
                     <Tooltip formatter={(value: any) => formatCurrency(Number(value))} />
                   </PieChart>
                 </ResponsiveContainer>
-              ) : <Typography color="text.secondary">Sem dados.</Typography>}
+              ) : <Typography color="text.secondary"></Typography>}
             </Box>
             <Box sx={{ mt: 1, px: 2, minHeight: '60px' }}>
                {categoryData.slice(0, 3).map((item, index) => (

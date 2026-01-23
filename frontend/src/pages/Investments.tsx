@@ -40,7 +40,6 @@ export default function Investments() {
   const [tabValue, setTabValue] = useState(0);
   const [userFilter, setUserFilter] = useState('Todos');
 
-  // Estado para controlar a visualização do gráfico
   const [chartViewMode, setChartViewMode] = useState<'assets' | 'types' | 'geo'>('types');
 
   const [page, setPage] = useState(0);
@@ -418,8 +417,6 @@ export default function Investments() {
         <Grid container spacing={2} justifyContent="center">
           <Grid size={{ xs: 12, md: 5 }}>
             <Paper sx={{ p: 3, borderRadius: 5, height: 600, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              
-              {/* Header do Gráfico */}
               <Box sx={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 2 }}>
                 <Typography variant="h6" fontWeight="900" color="text.secondary" mb={2}>
                     Distribuição da Carteira

@@ -124,6 +124,53 @@ app.get('/payment-methods', async (req, res) => {
   }
 });
 
+app.post('/payment-methods', async (req, res) => {
+  const { name, closing_day, due_day, card_limit } = req.body;
+  if (!name) return res.status(400).json({ error: 'Nome obrigatório' });
+  try {
+    const sql = `
+      INSERT INTO payment_methods (name, closing_day, due_day, card_limit, active) 
+      VALUES ($1, $2, $3, $4, TRUE) RETURNING *
+    `;
+    const result = await query(sql, [
+      name, 
+      closing_day ? parseInt(closing_day) : null, 
+      due_day ? parseInt(due_day) : null, 
+      card_limit ? parseFloat(card_limit) : null
+    ]);
+    res.status(201).json(result.rows[0]);
+  } catch (err) { res.status(500).json({ error: 'Erro ao criar método' }); }
+});
+
+app.put('/payment-methods/:id', async (req, res) => {
+  const { id } = req.params;
+  const { name, closing_day, due_day, card_limit, active } = req.body;
+  try {
+    const sql = `
+      UPDATE payment_methods 
+      SET name = $1, closing_day = $2, due_day = $3, card_limit = $4, active = $5 
+      WHERE id = $6 RETURNING *
+    `;
+    const result = await query(sql, [
+      name, 
+      closing_day ? parseInt(closing_day) : null, 
+      due_day ? parseInt(due_day) : null, 
+      card_limit ? parseFloat(card_limit) : null,
+      active !== undefined ? active : true, 
+      id
+    ]);
+    res.json(result.rows[0]);
+  } catch (err) { res.status(500).json({ error: 'Erro ao atualizar método' }); }
+});
+
+app.delete('/payment-methods/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    await query('UPDATE payment_methods SET active = FALSE WHERE id = $1', [id]);
+    res.status(204).send();
+  } catch (err) { res.status(500).json({ error: 'Erro ao inativar método' }); }
+});
+
 // --- Rotas: Transações ---
 
 // Listar Transações
@@ -166,6 +213,10 @@ app.post('/transactions', async (req, res) => {
   }
 
   try {
+    // 1. Busca configs do cartão (se houver)
+    const methodRes = await query('SELECT * FROM payment_methods WHERE id = $1', [payment_method_id]);
+    const method = methodRes.rows[0];
+
     let assetId = null;
     if (asset_ticker && asset_ticker.trim() !== '') {
       const tickerUpper = asset_ticker.trim().toUpperCase();
@@ -185,17 +236,41 @@ app.post('/transactions', async (req, res) => {
 
     for (let i = 0; i < numInstallments; i++) {
       const currentLabel = numInstallments > 1 ? ` (${i + 1}/${numInstallments})` : '';
-      const installmentDate = new Date(baseDate);
-      installmentDate.setUTCDate(1);
-      installmentDate.setUTCMonth(baseDate.getUTCMonth() + i);
-      const lastDay = new Date(Date.UTC(installmentDate.getUTCFullYear(), installmentDate.getUTCMonth() + 1, 0)).getUTCDate();
-      installmentDate.setUTCDate(Math.min(baseDate.getUTCDate(), lastDay));
+      let installmentDate = new Date(baseDate);
+
+      // --- LÓGICA DE CARTÃO DE CRÉDITO ---
+      // Se tiver dia de fechamento, calculamos a data real do vencimento
+      if (method && method.closing_day && method.due_day) {
+        const purchaseDay = installmentDate.getUTCDate();
+        let targetMonth = installmentDate.getUTCMonth();
+        let targetYear = installmentDate.getUTCFullYear();
+
+        // Se comprou DEPOIS ou NO dia do fechamento, joga para o próximo mês
+        if (purchaseDay >= method.closing_day) {
+           targetMonth++;
+        }
+
+        // Se o dia do vencimento é MENOR que o fechamento (ex: fecha 25, vence 5), a fatura vira o mês também.
+        if (method.due_day < method.closing_day) {
+           targetMonth++;
+        }
+
+        // Soma o índice da parcela 
+        targetMonth += i;
+
+        installmentDate = new Date(Date.UTC(targetYear, targetMonth, method.due_day));
+      } else {
+        installmentDate.setUTCDate(1); // Evita bug de dia 31
+        installmentDate.setUTCMonth(baseDate.getUTCMonth() + i);
+        const lastDay = new Date(Date.UTC(installmentDate.getUTCFullYear(), installmentDate.getUTCMonth() + 1, 0)).getUTCDate();
+        installmentDate.setUTCDate(Math.min(baseDate.getUTCDate(), lastDay));
+      }
 
       const sql = `
         INSERT INTO transactions (
           description, amount, type, user_id, category_id, 
           date, payment_method_id, asset_id, quantity, installment_group_id,
-          investment_type, yield_rate -- <-- Novo campo
+          investment_type, yield_rate
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         RETURNING *

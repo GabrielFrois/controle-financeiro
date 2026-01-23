@@ -4,12 +4,13 @@ import {
   CircularProgress, useTheme, Avatar, Stack, Tab, Tabs,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip,
   TextField, MenuItem, Slider, styled, Tooltip as MuiTooltip,
-  TablePagination, Divider, IconButton, Dialog, DialogTitle, DialogContent, DialogActions, Button, InputAdornment
+  TablePagination, Divider, IconButton, Dialog, DialogTitle, DialogContent, 
+  DialogActions, Button, InputAdornment, ToggleButton, ToggleButtonGroup
 } from '@mui/material';
 import {
   TrendingUp, TrendingDown, AccountBalance, Stars,
   PieChart as PieIcon, Timeline, QueryStats, BarChart as BarIcon,
-  EmojiEvents, InfoOutlined, TableView, Edit
+  EmojiEvents, InfoOutlined, TableView, Edit, Public, Category, Apps
 } from '@mui/icons-material';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area,
@@ -35,8 +36,12 @@ export default function Investments() {
   const [loading, setLoading] = useState(true);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [marketPrices, setMarketPrices] = useState<Record<string, number>>({});
+  const [assetsList, setAssetsList] = useState<any[]>([]); 
   const [tabValue, setTabValue] = useState(0);
   const [userFilter, setUserFilter] = useState('Todos');
+
+  // Estado para controlar a visualização do gráfico
+  const [chartViewMode, setChartViewMode] = useState<'assets' | 'types' | 'geo'>('types');
 
   const [page, setPage] = useState(0);
   const rowsPerPage = 7;
@@ -63,16 +68,33 @@ export default function Investments() {
     }).format(val || 0);
   };
 
+  // Helper para traduzir tipos técnicos para nomes bonitos
+  const formatLabel = (key: string) => {
+    const map: Record<string, string> = {
+      'RENDA_FIXA': 'Renda Fixa',
+      'ACOES': 'Ações',
+      'FII': 'Fundos Imobiliários',
+      'CRIPTOS': 'Criptomoedas',
+      'INTERNACIONAL': 'Internacional',
+      'OUTROS': 'Outros',
+      'Brasil': 'Nacional',
+      'Exterior': 'Internacional'
+    };
+    return map[key] || key;
+  };
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [transRes, pricesRes] = await Promise.all([
+      const [transRes, pricesRes, assetsRes] = await Promise.all([
         api.get('/transactions'),
-        api.get('/assets/prices').catch(() => ({ data: {} }))
+        api.get('/assets/prices').catch(() => ({ data: {} })),
+        api.get('/assets').catch(() => ({ data: [] })) 
       ]);
 
       setTransactions(Array.isArray(transRes.data) ? transRes.data : []);
       setMarketPrices(pricesRes.data || {});
+      setAssetsList(Array.isArray(assetsRes.data) ? assetsRes.data : []);
     } catch (error) {
       console.error("Erro ao carregar investimentos:", error);
     } finally {
@@ -92,9 +114,9 @@ export default function Investments() {
     setDetailPage(0);
   };
 
-  const handleOpenEdit = (ticker: string, currentPm: number) => {
-    setEditAsset({ ticker, currentPm });
-    setNewPm(currentPm.toString());
+  const handleOpenEdit = (ticker: string, currentVal: number) => {
+    setEditAsset({ ticker, currentPm: currentVal });
+    setNewPm(currentVal.toFixed(2));
     setEditOpen(true);
   };
 
@@ -102,13 +124,13 @@ export default function Investments() {
     if (!editAsset) return;
     try {
       await api.put('/assets/price', {
-        ticker: editAsset.ticker,
+        ticker: editAsset.ticker, 
         price: newPm
       });
       setEditOpen(false);
       fetchData();
     } catch (error) {
-      alert("Erro ao salvar preço médio.");
+      alert("Erro ao salvar preço.");
     }
   };
 
@@ -123,23 +145,34 @@ export default function Investments() {
     const positionMap: any = {};
     const rfMap: any = {};
 
+    const findManualPrice = (identifier: string) => {
+      if (!identifier) return null;
+      const asset = assetsList.find(a => a.ticker.toUpperCase() === identifier.toUpperCase());
+      return asset && asset.manual_price ? Number(asset.manual_price) : null;
+    };
+
     investTrans.forEach(t => {
       const isRF = t.investment_type === 'RENDA_FIXA';
-      const val = Number(t.amount || 0);
+      let val = Number(t.amount || 0);
+      const isResgate = t.category_name.toLowerCase().includes('resgate') || t.type === 'INCOME';
+      
+      if (isResgate) val = -Math.abs(val);
+
       const qtd = Number(t.quantity || 0);
 
       if (isRF) {
-        const nomeTitulo = t.description;
-        const dataCompra = new Date(t.date.split('T')[0] + 'T12:00:00');
+        const nomeTitulo = t.asset_ticker || t.description;
+        const manualPriceFound = findManualPrice(nomeTitulo); 
+
+        const dataMovimentacao = new Date(t.date.split('T')[0] + 'T12:00:00');
         const hoje = new Date();
         hoje.setHours(12, 0, 0, 0);
-        const diffTime = hoje.getTime() - dataCompra.getTime();
-        const diasCorridos = Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)) - 1);
-        const diasUteis = Math.max(0, Math.floor(diasCorridos * 0.69));
+        const diffTime = hoje.getTime() - dataMovimentacao.getTime();
+        const diasCorridos = Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
+        const diasUteis = Math.floor(diasCorridos * 0.69); 
         const taxaContratada = Number(t.yield_rate || 100) / 100;
         const rentabilidadeDiariaEfetiva = cdiDiarioOficial * taxaContratada;
-
-        const valorAtualizadoAporte = val * Math.pow(1 + rentabilidadeDiariaEfetiva, diasUteis);
+        const valorAtualizado = val * Math.pow(1 + rentabilidadeDiariaEfetiva, diasUteis);
 
         if (!rfMap[nomeTitulo]) {
           rfMap[nomeTitulo] = {
@@ -153,12 +186,26 @@ export default function Investments() {
           };
         }
 
-        rfMap[nomeTitulo].quantity += 1;
-        rfMap[nomeTitulo].totalCost += val;
-        rfMap[nomeTitulo].currentTotal += valorAtualizadoAporte;
+        if (manualPriceFound !== null) rfMap[nomeTitulo].manualPrice = manualPriceFound;
+        if (!isResgate) rfMap[nomeTitulo].quantity += 1;
+        
+        rfMap[nomeTitulo].totalCost += val;          
+        
+        if (rfMap[nomeTitulo].manualPrice) {
+            rfMap[nomeTitulo].currentTotal = rfMap[nomeTitulo].manualPrice;
+            rfMap[nomeTitulo].isManual = true;
+        } else {
+            rfMap[nomeTitulo].currentTotal += valorAtualizado; 
+        }
+
+        if (!rfMap[nomeTitulo].manualPrice && Math.abs(rfMap[nomeTitulo].currentTotal) < 0.10) {
+            rfMap[nomeTitulo].currentTotal = 0;
+            rfMap[nomeTitulo].totalCost = 0;
+        }
 
       } else if (t.asset_ticker) {
         const ticker = t.asset_ticker.toUpperCase();
+        const manualPriceFound = findManualPrice(ticker);
 
         if (!positionMap[ticker]) {
           positionMap[ticker] = {
@@ -170,28 +217,31 @@ export default function Investments() {
           };
         }
 
-        if (t.manual_price) {
-          positionMap[ticker].manualPrice = Number(t.manual_price);
-        }
+        if (manualPriceFound !== null) positionMap[ticker].manualPrice = manualPriceFound;
 
-        if (t.category_name.includes('Aporte') || t.category_name.includes('Reinvestimento')) {
-          positionMap[ticker].quantity += qtd;
-          positionMap[ticker].totalCost += val;
-        } else if (t.category_name.includes('Resgate')) {
-          positionMap[ticker].quantity -= qtd;
-          positionMap[ticker].totalCost -= val;
-        }
+        if (isResgate) positionMap[ticker].quantity -= qtd;
+        else positionMap[ticker].quantity += qtd;
+
+        positionMap[ticker].totalCost += val;
       }
     });
 
-    const rendaFixaItems = Object.values(rfMap).map((item: any) => ({
-      ...item,
-      quantity: 1,
-      avgPrice: item.totalCost,
-      currentPrice: item.currentTotal,
-      profitLoss: item.currentTotal - item.totalCost,
-      performance: item.totalCost > 0 ? ((item.currentTotal / item.totalCost) - 1) * 100 : 0
-    }));
+    const rendaFixaItems = Object.values(rfMap).map((item: any) => {
+      const finalCurrentTotal = item.manualPrice ? item.manualPrice : item.currentTotal;
+      const displayTotal = (!item.manualPrice && Math.abs(finalCurrentTotal) < 0.10) ? 0 : finalCurrentTotal;
+      const displayCost = (!item.manualPrice && Math.abs(item.totalCost) < 0.10) ? 0 : item.totalCost;
+
+      return {
+        ...item,
+        quantity: 1, 
+        avgPrice: displayCost,
+        currentPrice: displayTotal,
+        currentTotal: displayTotal,
+        profitLoss: displayTotal - displayCost,
+        performance: displayCost > 0 ? ((displayTotal / displayCost) - 1) * 100 : 0,
+        isManual: !!item.manualPrice 
+      };
+    });
 
     const processedVariavel = Object.values(positionMap)
       .filter((p: any) => p.quantity > 0)
@@ -200,7 +250,6 @@ export default function Investments() {
         const effectiveTotalCost = avgPrice * p.quantity;
         const currentPrice = marketPrices[p.ticker] || avgPrice;
         const currentTotal = currentPrice * p.quantity;
-
         return {
           ...p,
           avgPrice,
@@ -220,51 +269,68 @@ export default function Investments() {
     const patrimonioMercado = consolidatedPosition.reduce((acc, curr) => acc + curr.currentTotal, 0);
     const custoTotal = consolidatedPosition.reduce((acc, curr) => acc + curr.totalCost, 0);
 
-    // LÓGICA DE HISTÓRICO ACUMULADO
+    // --- AGRUPAMENTOS PARA O GRÁFICO ---
+    
+    // 1. Por Ativos
+    const allocationByAsset = consolidatedPosition.map(p => ({ name: p.ticker, value: p.currentTotal }));
+
+    // 2. Por Tipo/Classe
+    const typeMap = consolidatedPosition.reduce((acc: any, curr) => {
+      acc[curr.type] = (acc[curr.type] || 0) + curr.currentTotal;
+      return acc;
+    }, {});
+    const allocationByType = Object.entries(typeMap)
+      .map(([name, value]) => ({ name, value: Number(value) }))
+      .sort((a, b) => b.value - a.value);
+
+    // 3. Por Geografia
+    const intlTypes = ['INTERNACIONAL', 'CRIPTOS'];
+    const totalIntl = consolidatedPosition.filter(p => intlTypes.includes(p.type)).reduce((acc, curr) => acc + curr.currentTotal, 0);
+    const totalNacional = Math.max(0, patrimonioMercado - totalIntl);
+    const allocationByGeo = [
+        { name: 'Brasil', value: totalNacional }, 
+        { name: 'Exterior', value: totalIntl }    
+    ].filter(i => i.value > 0);
+
+
     if (investTrans.length === 0) {
-      return { patrimonioTotal: patrimonioMercado, dinheiroDoBolso: custoTotal, dividendos: 0, lucroReal: 0, performanceGeral: 0, allocationData: [], consolidatedPosition, fullHistory: [] };
+      return { 
+          patrimonioTotal: patrimonioMercado, 
+          dinheiroDoBolso: custoTotal, 
+          dividendos: 0, 
+          lucroReal: 0, 
+          performanceGeral: 0, 
+          allocationByAsset,
+          allocationByType,
+          allocationByGeo,
+          consolidatedPosition, 
+          fullHistory: [] 
+      };
     }
 
     const dates = investTrans.map(t => new Date(t.date));
     const minDate = new Date(Math.min.apply(null, dates as any));
     const maxDate = new Date();
-
-    minDate.setDate(1);
-    maxDate.setDate(1);
-
+    minDate.setDate(1); maxDate.setDate(1);
     const historyMap = new Map();
     let currentDate = new Date(minDate);
-
     while (currentDate <= maxDate) {
       const key = currentDate.toISOString().substring(0, 7);
-      historyMap.set(key, {
-        month: key,
-        label: currentDate.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).toUpperCase(),
-        dividendos: 0,
-        patrimony: 0
-      });
+      historyMap.set(key, { month: key, label: currentDate.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).toUpperCase(), dividendos: 0, patrimony: 0 });
       currentDate.setMonth(currentDate.getMonth() + 1);
     }
-
     investTrans.forEach(t => {
       const key = t.date.substring(0, 7);
       if (historyMap.has(key)) {
         const entry = historyMap.get(key);
         const val = Number(t.amount || 0);
-
-        if (t.category_name.includes('Dividendos')) {
-          entry.dividendos += val;
-        } else if (t.category_name.includes('Aporte') || t.category_name.includes('Reinvestimento')) {
-          entry.patrimony += val;
-        } else if (t.category_name.includes('Resgate')) {
-          entry.patrimony -= val;
-        }
+        if (t.category_name.includes('Dividendos')) entry.dividendos += val;
+        else if (t.category_name.includes('Aporte') || t.category_name.includes('Reinvestimento')) entry.patrimony += val;
+        else if (t.category_name.includes('Resgate')) entry.patrimony -= val;
       }
     });
-
     const fullHistory = Array.from(historyMap.values());
     let accumulatedPatrimony = 0;
-
     for (let i = 0; i < fullHistory.length; i++) {
       accumulatedPatrimony += fullHistory[i].patrimony;
       fullHistory[i].patrimony = accumulatedPatrimony;
@@ -276,11 +342,23 @@ export default function Investments() {
       dividendos: investTrans.filter(t => t.category_name.includes('Dividendos')).reduce((a, b) => a + Number(b.amount), 0),
       lucroReal: patrimonioMercado - custoTotal,
       performanceGeral: custoTotal > 0 ? ((patrimonioMercado / custoTotal) - 1) * 100 : 0,
-      allocationData: consolidatedPosition.map(p => ({ name: p.ticker, value: p.currentTotal })),
+      allocationByAsset,
+      allocationByType,
+      allocationByGeo,
       consolidatedPosition,
       fullHistory
     };
-  }, [transactions, userFilter, marketPrices]);
+  }, [transactions, userFilter, marketPrices, assetsList]);
+
+  useEffect(() => {
+    if (stats.fullHistory.length > 0) {
+      // Calcula o índice para mostrar os últimos "WINDOW_SIZE" meses
+      const latestStart = Math.max(0, stats.fullHistory.length - WINDOW_SIZE);
+      
+      setStartDiv(latestStart);
+      setStartPat(latestStart);
+    }
+  }, [stats.fullHistory.length]); // Executa apenas quando o tamanho do histórico mudar
 
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}><CircularProgress /></Box>;
 
@@ -291,9 +369,15 @@ export default function Investments() {
       case 'FII': return theme.palette.warning.main;
       case 'CRIPTOS': return theme.palette.secondary.main;
       case 'INTERNACIONAL': return theme.palette.error.main;
+      case 'Brasil': return theme.palette.success.dark;
+      case 'Exterior': return theme.palette.info.main;
       default: return theme.palette.grey[500];
     }
   };
+
+  const currentChartData = chartViewMode === 'assets' ? stats.allocationByAsset 
+                         : chartViewMode === 'types' ? stats.allocationByType 
+                         : stats.allocationByGeo;
 
   const compactCellStyle = { px: 1 };
 
@@ -333,24 +417,84 @@ export default function Investments() {
       {tabValue === 0 && (
         <Grid container spacing={2} justifyContent="center">
           <Grid size={{ xs: 12, md: 5 }}>
-            <Paper sx={{ p: 3, borderRadius: 5, height: 600, display: 'flex', flexDirection: 'column', textAlign: 'center' }}>
-              <Typography variant="h6" fontWeight="900" mb={3} color="text.secondary">Distribuição Atual</Typography>
-              <Box sx={{ flexGrow: 1 }}>
+            <Paper sx={{ p: 3, borderRadius: 5, height: 600, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              
+              {/* Header do Gráfico */}
+              <Box sx={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 2 }}>
+                <Typography variant="h6" fontWeight="900" color="text.secondary" mb={2}>
+                    Distribuição da Carteira
+                </Typography>
+                <ToggleButtonGroup 
+                    value={chartViewMode} 
+                    exclusive 
+                    onChange={(_, v) => v && setChartViewMode(v)} 
+                    size="small"
+                    sx={{ 
+                        mb: 1,
+                        bgcolor: 'background.paper',
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        borderRadius: 8, 
+                        '& .MuiToggleButton-root': {
+                           border: 'none',
+                           borderRadius: 8,
+                           px: 2,
+                           py: 0.5,
+                           mx: 0.5,
+                           my: 0.5,
+                           textTransform: 'none',
+                           fontWeight: 700,
+                           fontSize: '0.8rem',
+                           color: 'text.secondary',
+                           '&.Mui-selected': {
+                             bgcolor: 'primary.main',
+                             color: '#fff',
+                             '&:hover': { bgcolor: 'primary.dark' }
+                           }
+                        }
+                    }}
+                >
+                    <ToggleButton value="assets">Ativos</ToggleButton>
+                    <ToggleButton value="types">Tipos</ToggleButton>
+                    <ToggleButton value="geo">Geo</ToggleButton>
+                </ToggleButtonGroup>
+              </Box>
+
+              <Box sx={{ flexGrow: 1, width: '100%' }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={stats.allocationData} innerRadius={90} outerRadius={130} dataKey="value" stroke="none" paddingAngle={5}>
-                      {stats.allocationData.map((_, index) => <Cell key={index} fill={COLORS[index % COLORS.length]} />)}
+                    <Pie 
+                        data={currentChartData} 
+                        innerRadius={90} 
+                        outerRadius={130} 
+                        dataKey="value" 
+                        stroke="none" 
+                        paddingAngle={5}
+                    >
+                      {currentChartData.map((entry: any, index: number) => (
+                        <Cell key={index} fill={chartViewMode === 'assets' ? COLORS[index % COLORS.length] : getAssetColor(entry.name)} />
+                      ))}
                     </Pie>
-                    <Tooltip formatter={(v: any) => formatCurrency(Number(v))} />
+                    <Tooltip 
+                        cursor={{ fill: 'transparent' }}
+                        formatter={(value: number, name: string) => [
+                            `${formatCurrency(value)} (${((value / stats.patrimonioTotal) * 100).toFixed(2)}%)`,
+                            formatLabel(name)
+                        ]}
+                        contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}
+                    />
                   </PieChart>
                 </ResponsiveContainer>
               </Box>
-              <Stack spacing={1.5} sx={{ mt: 3, px: 2 }}>
-                {stats.allocationData.slice(0, 5).map((item, i) => (
+              
+              <Stack spacing={1} sx={{ mt: 3, px: 2, width: '100%', maxHeight: 150, overflowY: 'auto' }}>
+                {currentChartData.slice(0, 5).map((item: any, i: number) => (
                   <Box key={i} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: COLORS[i % COLORS.length] }} />
-                      <Typography variant="body2" fontWeight="bold">{item.name}</Typography>
+                      <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: chartViewMode === 'assets' ? COLORS[i % COLORS.length] : getAssetColor(item.name) }} />
+                      <Typography variant="body2" fontWeight="bold">
+                          {formatLabel(item.name)}
+                      </Typography>
                     </Box>
                     <Typography variant="body2" fontWeight="900">
                       {stats.patrimonioTotal > 0 ? ((item.value / stats.patrimonioTotal) * 100).toFixed(1) : 0}%
@@ -417,7 +561,8 @@ export default function Investments() {
                           </TableCell>
                           <TableCell align="right">
                             <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-                              PM: {formatCurrency(p.avgPrice)} {p.isManual && '*'}
+                              {p.isRF ? 'Inv.: ' : 'PM: '}
+                              {formatCurrency(p.avgPrice)} {p.isManual}
                             </Typography>
                             <Typography variant="body2" sx={{ whiteSpace: 'nowrap', color: 'text.primary' }}>
                               Atual: {formatCurrency(p.currentPrice)}
@@ -498,32 +643,73 @@ export default function Investments() {
                           <Stack direction="row" alignItems="center" spacing={1}>
                             <Box sx={{ width: 4, height: 32, bgcolor: getAssetColor(p.type), borderRadius: 1 }} />
                             <Typography variant="body2" fontWeight="bold" sx={{ fontSize: '0.9rem' }}>{p.ticker}</Typography>
-                            {p.isRF && <Chip label="RF" size="small" color="success" variant="outlined" sx={{ height: 20, fontSize: '0.65rem' }} />}
                           </Stack>
                         </TableCell>
                         <TableCell align="right" sx={compactCellStyle}>
                           <Typography variant="body2" sx={{ fontSize: '0.9rem' }}>{formatQuantity(p.quantity)}</Typography>
                         </TableCell>
 
+                        {/* COLUNA PREÇO MÉDIO */}
                         <TableCell align="right" sx={compactCellStyle}>
                           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 1 }}>
-                            <Typography variant="body2" sx={{ color: p.isManual ? 'primary.main' : 'inherit', fontWeight: p.isManual ? 'bold' : 'normal', fontSize: '0.9rem' }}>
+                            <Typography 
+                              variant="body2" 
+                              sx={{ 
+                                color: 'text.primary', 
+                                fontWeight: 'normal', 
+                                fontSize: '0.9rem',
+                              }}
+                            >
                               {formatCurrency(p.avgPrice)}
                             </Typography>
-                            {!p.isRF && (
-                              <IconButton size="small" onClick={() => handleOpenEdit(p.ticker, p.avgPrice)} sx={{ padding: 0.5 }}>
+                            
+                            <IconButton 
+                              size="small" 
+                              onClick={() => !p.isRF && handleOpenEdit(p.ticker, p.avgPrice)} 
+                              sx={{ 
+                                padding: 0.5,
+                                visibility: p.isRF ? 'hidden' : 'visible', 
+                                pointerEvents: p.isRF ? 'none' : 'auto'
+                              }}
+                            >
                                 <Edit fontSize="small" sx={{ fontSize: 16, color: 'text.disabled' }} />
-                              </IconButton>
-                            )}
+                            </IconButton>
                           </Box>
                         </TableCell>
 
+                        {/* COLUNA PREÇO ATUAL */}
                         <TableCell align="right" sx={compactCellStyle}>
-                          <Typography variant="body2" fontWeight="bold" sx={{ fontSize: '0.9rem' }}>{formatCurrency(p.currentPrice)}</Typography>
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 1 }}>
+                            <Typography 
+                              variant="body2" 
+                              sx={{ 
+                                fontSize: '0.9rem', 
+                                color: 'text.primary',
+                                fontWeight: 'normal' 
+                              }}
+                            >
+                                {formatCurrency(p.currentPrice)} 
+                            </Typography>
+
+                            <IconButton 
+                              size="small" 
+                              onClick={() => p.isRF && handleOpenEdit(p.ticker, p.currentTotal)} 
+                              sx={{ 
+                                padding: 0.5,
+                                visibility: !p.isRF ? 'hidden' : 'visible', 
+                                pointerEvents: !p.isRF ? 'none' : 'auto'
+                              }}
+                            >
+                                <Edit fontSize="small" sx={{ fontSize: 16, color: 'text.disabled' }} />
+                            </IconButton>
+                          </Box>
                         </TableCell>
-                        <TableCell align="right" sx={{ ...compactCellStyle, color: 'text.secondary' }}>
+
+                        {/* COLUNA TOTAL INVESTIDO */}
+                        <TableCell align="right" sx={{ ...compactCellStyle, color: 'text.primary' }}>
                           <Typography variant="body2" sx={{ fontSize: '0.9rem' }}>{formatCurrency(p.totalCost)}</Typography>
                         </TableCell>
+
                         <TableCell align="right" sx={compactCellStyle}>
                           <Typography variant="body2" fontWeight={900} sx={{ fontSize: '0.9rem' }}>{formatCurrency(p.currentTotal)}</Typography>
                         </TableCell>
@@ -553,6 +739,7 @@ export default function Investments() {
                 onPageChange={(_, newPage) => setDetailPage(newPage)}
                 rowsPerPageOptions={[]}
                 labelDisplayedRows={({ from, to, count }) => `${from}-${to} de ${count}`}
+                sx={{ borderTop: 'none' }}
               />
             </TableContainer>
           </Grid>
@@ -562,9 +749,12 @@ export default function Investments() {
       {/* --- ABA 2: EVOLUÇÃO --- */}
       {tabValue === 2 && (
         <Grid container spacing={3}>
+          {/* GRÁFICO DE DIVIDENDOS */}
           <Grid size={{ xs: 12, md: 6 }}>
             <Paper sx={{ p: 4, pb: 2, borderRadius: 5, height: 520, display: 'flex', flexDirection: 'column' }}>
-              <Typography variant="h6" fontWeight="900" mb={3} display="flex" alignItems="center" gap={1}><BarIcon color="success" /> DIVIDENDOS RECEBIDOS</Typography>
+              <Typography variant="h6" fontWeight="900" mb={3} display="flex" alignItems="center" gap={1}>
+                <BarIcon color="success" /> DIVIDENDOS RECEBIDOS
+              </Typography>
               <Box sx={{ flexGrow: 1 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={stats.fullHistory.slice(startDiv, startDiv + WINDOW_SIZE)}>
@@ -574,7 +764,10 @@ export default function Investments() {
                       tick={{ fontSize: 10, fontWeight: 'bold' }}
                       minTickGap={20}
                     />
-                    <YAxis tickFormatter={(val) => `R$ ${val}`} tick={{ fontSize: 12 }} />
+                    <YAxis 
+                      tickFormatter={(val) => `R$ ${val}`} 
+                      tick={{ fontSize: 12 }} 
+                    />
                     <Tooltip
                       formatter={(v: any) => formatCurrency(v)}
                       cursor={{ fill: 'transparent' }}
@@ -585,14 +778,24 @@ export default function Investments() {
                 </ResponsiveContainer>
               </Box>
               <Box sx={{ px: 4, mt: 2 }}>
-                <SmoothSlider size="small" value={startDiv} min={0} max={Math.max(0, stats.fullHistory.length - WINDOW_SIZE)} onChange={(_, v) => setStartDiv(v as number)} sx={{ color: theme.palette.success.main }} />
+                <SmoothSlider 
+                  size="small" 
+                  value={startDiv} 
+                  min={0} 
+                  max={Math.max(0, stats.fullHistory.length - WINDOW_SIZE)} 
+                  onChange={(_, v) => setStartDiv(v as number)} 
+                  sx={{ color: theme.palette.success.main }} 
+                />
               </Box>
             </Paper>
           </Grid>
 
+          {/* GRÁFICO DE PATRIMÔNIO */}
           <Grid size={{ xs: 12, md: 6 }}>
             <Paper sx={{ p: 4, pb: 2, borderRadius: 5, height: 520, display: 'flex', flexDirection: 'column' }}>
-              <Typography variant="h6" fontWeight="900" mb={3} display="flex" alignItems="center" gap={1}><AccountBalance color="primary" /> CRESCIMENTO PATRIMONIAL</Typography>
+              <Typography variant="h6" fontWeight="900" mb={3} display="flex" alignItems="center" gap={1}>
+                <AccountBalance color="primary" /> CRESCIMENTO PATRIMONIAL
+              </Typography>
               <Box sx={{ flexGrow: 1 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={stats.fullHistory.slice(startPat, startPat + WINDOW_SIZE)}>
@@ -632,7 +835,14 @@ export default function Investments() {
                 </ResponsiveContainer>
               </Box>
               <Box sx={{ px: 4, mt: 2 }}>
-                <SmoothSlider size="small" value={startPat} min={0} max={Math.max(0, stats.fullHistory.length - WINDOW_SIZE)} onChange={(_, v) => setStartPat(v as number)} sx={{ color: theme.palette.primary.main }} />
+                <SmoothSlider 
+                  size="small" 
+                  value={startPat} 
+                  min={0} 
+                  max={Math.max(0, stats.fullHistory.length - WINDOW_SIZE)} 
+                  onChange={(_, v) => setStartPat(v as number)} 
+                  sx={{ color: theme.palette.primary.main }} 
+                />
               </Box>
             </Paper>
           </Grid>
@@ -641,21 +851,36 @@ export default function Investments() {
 
       {/* --- DIALOG DE EDIÇÃO DE PREÇO --- */}
       <Dialog open={editOpen} onClose={() => setEditOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle sx={{ fontWeight: 900 }}>Editar Preço Médio</DialogTitle>
+        <DialogTitle sx={{ fontWeight: 900 }}>Editar {editAsset?.ticker && stats.consolidatedPosition.find(p => p.ticker === editAsset.ticker)?.isRF ? 'Saldo Atual' : 'Preço Médio'}</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Defina um preço médio manual para <b>{editAsset?.ticker}</b>.
-            Deixe 0 para voltar ao cálculo automático.
+            {editAsset?.ticker && stats.consolidatedPosition.find(p => p.ticker === editAsset.ticker)?.isRF 
+              ? `Informe o SALDO BRUTO ATUAL que consta no app da corretora para "${editAsset.ticker}".`
+              : `Defina um PREÇO MÉDIO UNITÁRIO manual para "${editAsset?.ticker}".`
+            }
+            <br/><br/>
+            <span style={{ fontSize: '0.8rem' }}>
+              Deixe <b>0</b> para voltar ao cálculo automático.
+            </span>
           </Typography>
+          
           <TextField
             autoFocus
             fullWidth
-            label="Preço Médio (Unitário)"
+            margin="dense"
+            label={
+               editAsset?.ticker && stats.consolidatedPosition.find(p => p.ticker === editAsset.ticker)?.isRF 
+               ? "Saldo Total Atual (R$)" 
+               : "Preço Médio Unitário (R$)"
+            }
             type="number"
             value={newPm}
             onChange={(e) => setNewPm(e.target.value)}
             InputProps={{
               startAdornment: <InputAdornment position="start">R$</InputAdornment>,
+            }}
+            inputProps={{
+              step: "0.01"
             }}
           />
         </DialogContent>

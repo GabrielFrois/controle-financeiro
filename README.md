@@ -1,120 +1,152 @@
 # Financias - Sistema de Controle Financeiro
 
-O Financias é uma aplicação completa de gestão financeira pessoal e familiar. O sistema permite não apenas o controle de fluxo de caixa (entradas e saídas), mas também a gestão de orçamentos (metas), acompanhamento detalhado de investimentos (dividendos e patrimônio) e geração de relatórios exportáveis.
+O **Financias** é uma aplicação Full-Stack completa para gestão financeira pessoal e familiar. O sistema centraliza o controle de fluxo de caixa, gestão de orçamentos, acompanhamento de investimentos e relatórios detalhados.
+
+![Dashboard Preview](./.github/assets/dashboard-preview.png)
 
 ---
 
 ## Funcionalidades Principais
 
 ### Dashboards Analíticos
-- Visualização de Saldo, Receitas, Despesas e Patrimônio Total.
-- Gráficos de distribuição por categoria e fluxo de caixa mensal/anual.
-- Listagem rápida de lançamentos recentes.
+- **KPIs em Tempo Real:** Saldo, Receitas, Despesas e Patrimônio Líquido.
+- **Gráficos Dinâmicos:** Distribuição por categorias (Pizza), fluxo de caixa (Barras) e evolução patrimonial (Área).
+- **Filtros Temporais:** Visualização por Mês, Ano ou Histórico Completo.
 
 ### Gestão de Transações
-- Cadastro detalhado de receitas e despesas.
-- Compras Parceladas: Suporte a transações em cartão de crédito com gerenciamento de parcelas.
-- Filtros avançados por data, usuário, categoria e tipo.
+- **Entradas e Saídas:** Cadastro completo com categorização e vínculo a usuários.
+- **Compras Parceladas:** Lógica inteligente para parcelamento no cartão de crédito.
+- **Edição em Lote:** Capacidade de editar parcelas futuras de uma compra recorrente.
 
 ### Investimentos e Patrimônio
-- Acompanhamento de aportes, resgates e dividendos.
-- Suporte a ativos específicos (Tickers) como Ações, FIIs e Criptoativos.
-- Gráficos de evolução patrimonial e histórico de proventos recebidos.
+- **Cotação Automática:** Integração com APIs externas para atualizar preços de Ações, FIIs e Criptos.
+- **Cálculo de Preço Médio:** O sistema calcula automaticamente o preço médio com base nos aportes.
+- **Rentabilidade de Renda Fixa:** Cálculo **estimativo** de rentabilidade diária baseada no CDI.
+- **Dividendos:** Histórico visual de proventos recebidos.
 
-### Metas e Orçamentos 
-- Definição de limites de gastos por categoria.
-- Acompanhamento visual de progresso (mensal e anual).
-- Alertas visuais para categorias próximas ao limite ou estouradas.
+### Metas e Orçamentos
+- Definição de tetos de gastos (Mensal ou Anual) por categoria.
+- Barras de progresso visual para acompanhar o consumo do orçamento.
+- Alertas de categorias que excederam o limite.
 
-### Relatórios e Exportação
-- Geração de relatórios formatados para impressão.
-- Exportação de dados consolidados em formato CSV.
-- Visão detalhada de maiores movimentações e resumo por categoria.
+### Relatórios
+- **Modo Impressão:** Layout otimizado para gerar PDFs limpos (CSS `@media print`).
+- **Exportação CSV:** Download dos dados filtrados para uso em planilhas externas.
 
 ---
 
 ## Tecnologias Utilizadas
 
 ### Frontend
-- **React.js** + **TypeScript**
-- **Material UI (MUI):** Biblioteca de componentes para interface moderna e responsiva.
-- **Recharts:** Gráficos interativos e dinâmicos.
-- **React Router Dom:** Gerenciamento de navegação SPA.
-**Axios:** Cliente HTTP para comunicação com a API.
+- **React.js** + **TypeScript** + **Vite**
+- **Material UI (MUI):** Design System e Componentes.
+- **Recharts:** Biblioteca de gráficos.
+- **Axios:** Consumo de APIs.
 
 ### Backend
 - **Node.js** + **TypeScript**
-- **Express:** Framework para rotas e middleware.
+- **Express:** API REST.
 - **PostgreSQL:** Banco de dados relacional.
-- **node-postgres (pg):** Driver de conexão com o banco.
+- **APIs Externas:** Brapi, AwesomeAPI e CoinMarketCap.
 
 ---
 
-## Como Rodar o Projeto 
+## Cobertura de Ativos e APIs
 
-Clone o repositório:
+O sistema utiliza APIs públicas para buscar cotações. Para garantir estabilidade, alguns ativos possuem **tratamento manual** no código. Abaixo está a lista do que é suportado automaticamente:
+
+### 1. Moedas (Câmbio)
+As seguintes moedas são convertidas automaticamente para BRL via *AwesomeAPI*:
+* **Dólar:** `USDBRL`
+* **Euro:** `EURBRL`
+* **Libra:** `GBPBRL`
+
+### 2. Ações Internacionais (Mapeamento Manual)
+Como a API principal (Brapi) foca no mercado brasileiro, ativos internacionais inseridos com tickers estrangeiros são convertidos internamente para seus respectivos **BDRs** para fins de cotação em Reais:
+
+| Ticker Inserido | Mapeado Para (API) | Descrição |
+| :--- | :--- | :--- |
+| `TSMC` ou `TMC` | `TSMC34` | Taiwan Semiconductor (BDR) |
+| `APPLE` | `AAPL34` | Apple Inc. (BDR) |
+| `IVVB11` | `IVVB11` | ETF S&P 500 |
+
+> **Nota:** Se você inserir um ticker internacional que não esteja nesta lista (ex: `MSFT`), o sistema tentará buscar diretamente. Se falhar, recomenda-se usar o ticker do BDR (ex: `MSFT34`) ou editar o valor manualmente na interface.
+
+### 3. Renda Fixa
+Ativos como **Tesouro Direto** ou **CDBs** não possuem cotação em tempo real via API pública gratuita.
+* **Lógica:** O sistema projeta o valor atual baseando-se na taxa contratada (% do CDI) e na data do aporte.
+* **Ajuste Manual:** É possível clicar no ícone de lápis na tabela de investimentos para corrigir o saldo atual manualmente.
+
+---
+
+## Como Rodar o Projeto
+
+### Pré-requisitos
+* Node.js (v18+)
+* PostgreSQL (Banco de dados criado com nome `controle-financeiro`)
+
+### 1. Configuração do Backend
+
+Entre na pasta do servidor:
 ```bash
-git clone https://github.com/seu-usuario/controle-financeiro.git
-cd controle-financeiro
-```
-
-### Iniciando o Backend:
-### 1. Pré-requisitos
-Certifique-se de ter instalado em sua máquina:
-- [Node.js](https://nodejs.org/) (Versão 18 ou superior)
-- [PostgreSQL](https://www.postgresql.org/) (Com um banco de dados criado com o nome `controle-financeiro`)
-
-### 2. Instalação
-Instale as dependências:
-```bash
-# Entre na pasta do backend
 cd backend
-
-# Instale as dependências
 npm install
 ```
 
-### 3. Configuração do Banco de Dados
-Crie um arquivo .env na raiz da pasta backend e adicione sua URL de conexão com o banco:
+Crie um arquivo `.env` na raiz da pasta backend com as seguintes variáveis:
 ```bash
-DATABASE_URL=postgres://seu_usuario:sua_senha@localhost:5432/controle-financeiro
 PORT=3000
+DATABASE_URL=postgres://seu_usuario:sua_senha@localhost:5432/controle-financeiro
+
+# Tokens de API (Gratuitos)
+BRAPI_TOKEN=seu_token_brapi_aqui
+ALPHA_VANTAGE_KEY=sua_chave_aqui (Opcional - Fallback)
+CMC_PRO_API_KEY=sua_chave_aqui (Opcional - Fallback Cripto)
 ```
 
-### 4. Inicializando o Banco (Seed)
-Para criar as tabelas, rode:
+Inicialize o banco de dados e popule com dados de teste:
 ```Bash
+# Cria as tabelas
 npm run init
-```
-Para adicionar usuários e registros de exemplos, rode:
-```bash
+
+# Popula com dados fictícios (Opcional)
 npm run seed
 ```
-Para apagar os registros de exemplos, rode:
-```bash
+
+Inicie o servidor:
+```Bash
+npm run dev
+```
+**O backend rodará em: http://localhost:3000**
+
+Para apagar os registros:
+```Bash
 npm run clear
 ```
 
-### 5. Executando o Servidor
+2. Configuração do Frontend
+Abra um novo terminal e entre na pasta do frontend:
 ```Bash
-npm run dev
-```
-**O servidor estará disponível em: http://localhost:3000**
-
-### Iniciando o Frontend:
-
-### 1. Instale as dependências:
-```bash
-# Entre na pasta do backend
-cd backend
-
-# Instale as dependências
+cd frontend
 npm install
 ```
 
-### 2. Inicie a aplicação:
-```bash
+Inicie a aplicação web:
+```Bash
 npm run dev
 ```
+**Acesse a aplicação em: http://localhost:5173**
 
-**A aplicação estará disponível em: http://localhost:5173**
+## Screenshots
+
+### Tela de Transações
+![Transactions Preview](./.github/assets/transactions-preview.png)
+
+### Investimentos
+![Investments Preview](./.github/assets/investments-preview.png)
+
+### Gestão de Metas
+![Budgets Preview](./.github/assets/budgets-preview.png)
+
+### Relatórios
+![Reports Preview](./.github/assets/reports-preview.png)

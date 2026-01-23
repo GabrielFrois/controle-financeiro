@@ -1,7 +1,7 @@
 import pool from './index.js';
 
 /**
- * Utilitário para gerar datas relativas de forma consistente
+ * Utilitário para gerar datas relativas
  */
 const getRelativeDate = (monthsAgo: number, day: number) => {
   const d = new Date();
@@ -12,192 +12,230 @@ const getRelativeDate = (monthsAgo: number, day: number) => {
   return d.toISOString().split('T')[0];
 };
 
-/**
- * Gera a lista de transações simuladas para os últimos 14 meses
- */
 const generateTransactions = () => {
   const transactions: any[] = [];
-  const monthsToSeed = 14;
+  const monthsToSeed = 16;
   
   const assetTypes: Record<string, string> = {
-    'PETR4': 'ACOES',
-    'VALE3': 'ACOES',
-    'ITUB4': 'ACOES',
-    'MXRF11': 'FII',
+    'Tesouro Direto': 'RENDA_FIXA',
     'KNCR11': 'FII',
-    'IVVB11': 'INTERNACIONAL'
+    'MXRF11': 'FII',
+    'VALE3': 'ACOES',
+    'PETR4': 'ACOES',
+    'ITUB4': 'ACOES',
+    'TSMC': 'INTERNACIONAL',
+    'IVVB11': 'INTERNACIONAL',
+    'AAPL34': 'INTERNACIONAL',
+    'USDBRL': 'INTERNACIONAL',
+    'BTC': 'CRIPTOS',
+    'ETH': 'CRIPTOS'
   };
 
-  const availableAssets = ['PETR4', 'VALE3', 'ITUB4', 'MXRF11', 'KNCR11', 'IVVB11'];
+  const availableAssets = Object.keys(assetTypes);
 
-  // Rastreio de saldo de cotas para cálculo de dividendos e reinvestimento
-  const currentPortfolio: Record<string, number> = {
-    'PETR4': 0, 'VALE3': 0, 'ITUB4': 0, 'MXRF11': 0, 'KNCR11': 0, 'IVVB11': 0
-  };
+  // Controle de portfólio para gerar dividendos coerentes
+  const currentPortfolio: Record<string, number> = availableAssets.reduce((acc, asset) => ({ ...acc, [asset]: 0 }), {});
 
+  // --- Garante que TODOS os ativos sejam comprados no início ---
+  // Simula compras feitas há 16 meses atrás
+  availableAssets.forEach(asset => {
+    const type = assetTypes[asset];
+    let qty = 0;
+    let val = 0;
+    const date = getRelativeDate(monthsToSeed, 5); // Data antiga
+
+    if (asset === 'Tesouro Direto') {
+      qty = 1; 
+      val = 15000.00;
+    } else if (asset === 'BTC') {
+      qty = 0.0055; 
+      val = 2100.00; 
+    } else if (asset === 'ETH') {
+      qty = 0.15;
+      val = 1800.00;
+    } else if (asset === 'USDBRL') {
+      qty = 500; 
+      val = 2600.00;
+    } else if (asset === 'KNCR11') {
+      qty = 80; val = 80 * 105.00;
+    } else if (asset === 'MXRF11') {
+      qty = 200; val = 200 * 10.50;
+    } else if (asset === 'VALE3') {
+      qty = 50; val = 50 * 65.00;
+    } else if (asset === 'PETR4') {
+      qty = 60; val = 60 * 35.00;
+    } else if (asset === 'ITUB4') {
+      qty = 40; val = 40 * 32.00;
+    } else if (asset === 'IVVB11') {
+      qty = 10; val = 10 * 280.00;
+    } else if (asset === 'AAPL34') {
+      qty = 15; val = 15 * 55.00;
+    } else if (asset === 'TSMC') {
+      qty = 10; val = 10 * 120.50;
+    }
+
+    // Cria a transação de compra inicial
+    transactions.push({ 
+      user: 'Gabriel', cat: 'Investimentos - Aporte', pay: 'Saldo Corretora', 
+      desc: `${asset}`, val: val, type: 'EXPENSE', date: date,
+      asset: asset, qty: qty, inv_type: type 
+    });
+
+    currentPortfolio[asset] += qty;
+  });
+
+  // --- Meses subsequentes - Salários e Gastos ---
   for (let i = monthsToSeed; i >= 0; i--) {
     const isGabrielTurn = i % 2 === 0;
 
-    // --- ENTRADAS ---
+    // Entradas (Salários)
     transactions.push(
-      { user: 'Gabriel', cat: 'Salário', pay: 'Pix', desc: 'Salário Mensal', val: 5200.00, type: 'INCOME', date: getRelativeDate(i, 28), inv_type: 'OUTROS' },
-      { user: 'Klara', cat: 'Salário', pay: 'Pix', desc: 'Salário Mensal', val: 4700.00, type: 'INCOME', date: getRelativeDate(i, 28), inv_type: 'OUTROS' }
+      { user: 'Gabriel', cat: 'Salário', pay: 'Pix', desc: 'Salário Mensal', val: 5200.00, type: 'INCOME', date: getRelativeDate(i, 5), inv_type: 'OUTROS' },
+      { user: 'Klara', cat: 'Salário', pay: 'Pix', desc: 'Salário Mensal', val: 4800.00, type: 'INCOME', date: getRelativeDate(i, 5), inv_type: 'OUTROS' }
     );
 
-    // --- DIVIDENDOS E REINVESTIMENTOS ---
+    // Despesas Fixas
+    transactions.push(
+      { user: 'Gabriel', cat: 'Aluguel', pay: 'Transferência', desc: 'Aluguel Ap', val: 1800.00, type: 'EXPENSE', date: getRelativeDate(i, 10), inv_type: 'OUTROS' },
+      { user: 'Klara', cat: 'Supermercado', pay: 'Crédito', desc: 'Compras do Mês', val: 950.00, type: 'EXPENSE', date: getRelativeDate(i, 12), inv_type: 'OUTROS' },
+      { user: 'Gabriel', cat: 'Internet/Celular', pay: 'Débito', desc: 'Conta Vivo', val: 120.00, type: 'EXPENSE', date: getRelativeDate(i, 15), inv_type: 'OUTROS' }
+    );
+
+    // Dividendos (Gera receita para quem tem saldo)
     availableAssets.forEach(asset => {
-      const sharesHeld = currentPortfolio[asset];
-      if (sharesHeld > 0 && (assetTypes[asset] === 'FII' || assetTypes[asset] === 'ACOES')) {
-        const dividendPerShare = assetTypes[asset] === 'FII' ? 0.12 : 0.40;
-        const totalDividend = sharesHeld * dividendPerShare;
-
-        // Registro do provento
-        transactions.push({
-          user: 'Gabriel', cat: 'Investimentos - Dividendos', pay: 'Saldo Corretora',
-          desc: `Dividendos ${asset}`, val: totalDividend, type: 'INCOME', date: getRelativeDate(i, 15),
-          asset: asset, qty: null, inv_type: assetTypes[asset]
-        });
-
-        // Reinvestimento
-        const price = asset.includes('11') ? 10.50 : 35.00;
-        const qtyToBuy = Math.floor(totalDividend / price);
-
-        if (qtyToBuy > 0) {
-          transactions.push({
-            user: 'Gabriel', cat: 'Investimentos - Reinvestimento', pay: 'Saldo Corretora',
-            desc: `Reinvestimento ${asset}`, val: qtyToBuy * price, type: 'EXPENSE', date: getRelativeDate(i, 16),
-            asset: asset, qty: qtyToBuy, inv_type: assetTypes[asset]
-          });
-          currentPortfolio[asset] += qtyToBuy;
+      if (currentPortfolio[asset] > 0 && ['ACOES', 'FII', 'INTERNACIONAL'].includes(assetTypes[asset])) {
+        const divRate = asset.includes('11') ? 0.08 : 0.20; // FII paga mensal, Ação paga esporádico (simulado)
+        
+        // Simula pagamento apenas em meses pares para ações, todo mês para FII
+        if (assetTypes[asset] === 'FII' || (assetTypes[asset] === 'ACOES' && i % 3 === 0)) {
+             const totalDiv = currentPortfolio[asset] * divRate;
+             if (totalDiv > 1) {
+                transactions.push({
+                  user: 'Gabriel', cat: 'Investimentos - Dividendos', pay: 'Saldo Corretora',
+                  desc: `Proventos ${asset}`, val: totalDiv, type: 'INCOME', date: getRelativeDate(i, 20),
+                  asset: asset, qty: null, inv_type: assetTypes[asset]
+                });
+             }
         }
       }
     });
 
-    // --- APORTES E INVESTIMENTOS ---
-    if (isGabrielTurn) {
-      const assetIndex = Math.floor(i / 2) % availableAssets.length;
-      const asset = availableAssets[assetIndex];
-      
-      let quantity = 30; 
-      if (asset.includes('11')) quantity = 150;
-      if (asset === 'IVVB11') quantity = 5;
+    // Aportes Recorrentes
+    if (i < monthsToSeed) { 
+        // Escolhe um ativo aleatório para aportar no mês
+        const assetsToBuy = ['KNCR11', 'MXRF11', 'PETR4', 'VALE3', 'Tesouro Direto', 'BTC']; 
+        const chosen = assetsToBuy[Math.floor(Math.random() * assetsToBuy.length)];
+        
+        let qtyBuy = 0;
+        let price = 0;
 
-      transactions.push({ 
-        user: 'Gabriel', cat: 'Investimentos - Aporte', pay: 'Transferência', 
-        desc: `Aporte ${asset}`, val: 1200.00 + (Math.random() * 500), type: 'EXPENSE', date: getRelativeDate(i, 5),
-        asset: asset, qty: quantity,
-        inv_type: assetTypes[asset] 
-      });
+        if (chosen === 'Tesouro Direto') {
+            qtyBuy = 1; price = 500;
+        } else if (chosen === 'BTC') {
+            qtyBuy = 0.0001; price = 280000;
+        } else {
+            qtyBuy = Math.floor(Math.random() * 10) + 5;
+            price = 10 + (Math.random() * 20);
+        }
+        
+        const totalVal = chosen === 'BTC' ? 300 : (qtyBuy * price);
 
-      currentPortfolio[asset] += quantity;
+        transactions.push({
+            user: 'Gabriel', cat: 'Investimentos - Aporte', pay: 'Transferência',
+            desc: `${chosen}`, val: totalVal, type: 'EXPENSE', date: getRelativeDate(i, 2),
+            asset: chosen, qty: qtyBuy, inv_type: assetTypes[chosen]
+        });
+        currentPortfolio[chosen] += qtyBuy;
     }
-
-    // --- GASTOS VARIÁVEIS ---
-    transactions.push(
-      { user: 'Gabriel', cat: 'Supermercado', pay: 'Crédito', desc: 'Compra do mês', val: 800 + Math.random() * 500, type: 'EXPENSE', date: getRelativeDate(i, 10), inv_type: 'OUTROS' },
-      { user: 'Klara', cat: 'Supermercado', pay: 'Crédito', desc: 'Feira e Padaria', val: 150 + Math.random() * 100, type: 'EXPENSE', date: getRelativeDate(i, 12), inv_type: 'OUTROS' },
-      { user: 'Klara', cat: 'Lanches/Cafés', pay: 'Pix', desc: 'Cafeteria', val: 40 + Math.random() * 80, type: 'EXPENSE', date: getRelativeDate(i, 15), inv_type: 'OUTROS' },
-      { user: 'Gabriel', cat: 'Restaurante', pay: 'Crédito', desc: 'Jantar', val: 200 + Math.random() * 300, type: 'EXPENSE', date: getRelativeDate(i, 20), inv_type: 'OUTROS' },
-      { user: 'Gabriel', cat: 'Farmácia', pay: 'Débito', desc: 'Higiene/Medicamentos', val: 60 + Math.random() * 100, type: 'EXPENSE', date: getRelativeDate(i, 18), inv_type: 'OUTROS' }
-    );
-
-    // --- GASTOS ANUAIS ---
-    if (i % 4 === 0) {
-      transactions.push({ 
-        user: 'Gabriel', cat: 'Lazer', pay: 'Crédito', desc: 'Viagem/Passeio', val: 800 + Math.random() * 1000, 
-        type: 'EXPENSE', date: getRelativeDate(i, 15), inv_type: 'OUTROS'
-      });
-    }
-    if (i % 3 === 0) {
-      transactions.push({ 
-        user: 'Klara', cat: 'Cursos/Livros', pay: 'Crédito', desc: 'Curso Online', val: 200 + Math.random() * 300, 
-        type: 'EXPENSE', date: getRelativeDate(i, 5), inv_type: 'OUTROS'
-      });
-    }
-
-    // --- CUSTOS FIXOS ---
-    transactions.push(
-      { user: 'Gabriel', cat: 'Aluguel', pay: 'Transferência', desc: 'Moradia', val: 1500.00, type: 'EXPENSE', date: getRelativeDate(i, 10), inv_type: 'OUTROS' },
-      { user: 'Gabriel', cat: 'Lazer', pay: 'Crédito', desc: 'Assinaturas (Netflix/Cloud)', val: 89.90, type: 'EXPENSE', date: getRelativeDate(i, 5), inv_type: 'OUTROS' }
-    );
   }
+
   return transactions;
 };
 
 async function seed() {
   const client = await pool.connect();
 
+  // Usuários
   const demoUsers = [{ name: "Gabriel", color: "#1976d2" }, { name: "Klara", color: "#a30d41" }];
-  const demoAssets = [
-    { ticker: "PETR4", type: "ACOES" },
-    { ticker: "VALE3", type: "ACOES" },
-    { ticker: "ITUB4", type: "ACOES" },
-    { ticker: "MXRF11", type: "FII" },
-    { ticker: "KNCR11", type: "FII" },
-    { ticker: "IVVB11", type: "INTERNACIONAL" }
-  ];
   
+  // Categorias
   const demoCategories = [
     { name: "Salário", type: "INCOME" },
     { name: "Investimentos - Aporte", type: "EXPENSE" },
     { name: "Investimentos - Dividendos", type: "INCOME" },
-    { name: "Investimentos - Reinvestimento", type: "EXPENSE" },
+    { name: "Investimentos - Resgate", type: "INCOME" },
     { name: "Aluguel", type: "EXPENSE" },
     { name: "Supermercado", type: "EXPENSE" },
-    { name: "Lanches/Cafés", type: "EXPENSE" },
-    { name: "Restaurante", type: "EXPENSE" },
-    { name: "Lazer", type: "EXPENSE" },
-    { name: "Cursos/Livros", type: "EXPENSE" },
-    { name: "Farmácia", type: "EXPENSE" }
+    { name: "Internet/Celular", type: "EXPENSE" }
+  ];
+
+  // Ativos
+  const demoAssets = [
+    { ticker: "KNCR11", type: "FII" },
+    { ticker: "Tesouro Direto", type: "RENDA_FIXA" },
+    { ticker: "VALE3", type: "ACOES" },
+    { ticker: "IVVB11", type: "INTERNACIONAL" },
+    { ticker: "PETR4", type: "ACOES" },
+    { ticker: "MXRF11", type: "FII" },
+    { ticker: "ITUB4", type: "ACOES" },
+    { ticker: "BTC", type: "CRIPTOS" },
+    { ticker: "ETH", type: "CRIPTOS" },
+    { ticker: "TSMC", type: "INTERNACIONAL" },
+    { ticker: "USDBRL", type: "INTERNACIONAL" },
+    { ticker: "AAPL34", type: "INTERNACIONAL" }
   ];
 
   const demoMethods = ["Pix", "Transferência", "Crédito", "Saldo Corretora", "Débito"];
 
   const demoBudgets = [
     { cat: 'Supermercado', val: 1200.00, period: 'MONTHLY' },
-    { cat: 'Lanches/Cafés', val: 350.00, period: 'MONTHLY' },
-    { cat: 'Restaurante', val: 800.00, period: 'MONTHLY' },
-    { cat: 'Lazer', val: 6000.00, period: 'YEARLY' },
-    { cat: 'Cursos/Livros', val: 2500.00, period: 'YEARLY' }
+    { cat: 'Aluguel', val: 1800.00, period: 'MONTHLY' }
   ];
 
   try {
     await client.query('BEGIN');
 
+    // 1. Criar Usuários
     const userMap: Record<string, number> = {};
     for (const u of demoUsers) {
       const res = await client.query('INSERT INTO users (name, color) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET color = EXCLUDED.color RETURNING id', [u.name, u.color]);
       userMap[u.name] = res.rows[0].id;
     }
 
+    // 2. Criar Ativos
     const assetMap: Record<string, number> = {};
     for (const a of demoAssets) {
       const res = await client.query('INSERT INTO assets (ticker, type) VALUES ($1, $2) ON CONFLICT (ticker) DO UPDATE SET type = EXCLUDED.type RETURNING id', [a.ticker, a.type]);
       assetMap[a.ticker] = res.rows[0].id;
     }
 
+    // 3. Criar Categorias
     const catMap: Record<string, number> = {};
     for (const cat of demoCategories) {
       const res = await client.query('INSERT INTO categories (name, type) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET type = EXCLUDED.type RETURNING id', [cat.name, cat.type]);
       catMap[cat.name] = res.rows[0].id;
     }
 
+    // 4. Criar Métodos de Pagamento
     const methodMap: Record<string, number> = {};
     for (const m of demoMethods) {
       const res = await client.query('INSERT INTO payment_methods (name) VALUES ($1) ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id', [m]);
       methodMap[m] = res.rows[0].id;
     }
 
-    console.log(">>> Limpando registros antigos...");
+    console.log(">>> Limpando registros antigos de transações e metas...");
     await client.query('DELETE FROM transactions');
     await client.query('DELETE FROM budgets');
 
     const dynamicTransactions = generateTransactions();
     console.log(`>>> Inserindo ${dynamicTransactions.length} transações...`);
+    
     for (const t of dynamicTransactions) {
       const categoryId = catMap[t.cat];
       const methodId = methodMap[t.pay];
+      
       if (!categoryId || !methodId) continue;
+      
       await client.query(
         `INSERT INTO transactions (description, amount, type, user_id, category_id, payment_method_id, date, asset_id, quantity, investment_type) 
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,

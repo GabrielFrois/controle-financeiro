@@ -11,6 +11,7 @@ const categories = [
   { name: "Salário", type: "INCOME", color: "#2E7D32" },
   { name: "Freelance/Projetos", type: "INCOME", color: "#4CAF50" },
   { name: "Investimentos - Dividendos", type: "INCOME", color: "#0088FE" },
+  { name: "Investimentos - JCP", type: "INCOME", color: "#2167a3" },
   { name: "Investimentos - Resgate", type: "INCOME", color: "#00C49F" },
   { name: "Presentes", type: "INCOME", color: "#82CA9D" },
   { name: "Vendas", type: "INCOME", color: "#1976D2" },

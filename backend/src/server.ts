@@ -404,131 +404,126 @@ app.get('/assets/prices', async (req, res) => {
   try {
     const result = await query('SELECT DISTINCT ticker, investment_type FROM assets a JOIN transactions t ON t.asset_id = a.id WHERE ticker IS NOT NULL');
     const assets = result.rows;
-    const prices: Record<string, number> = {};
+    const prices = {};
     const brapiToken = process.env.BRAPI_TOKEN;
 
-    // Busca CDI (BANCO CENTRAL)
+    // 1. CDI (Banco Central)
     try {
-      // Série 12 é a taxa CDI diária
       const bcbRes = await axios.get('https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados/ultimos/1?formato=json');
       const cdiDiario = parseFloat(bcbRes.data[0].valor) / 100;
       prices['GLOBAL_CDI'] = cdiDiario;
       console.log(`[BCB] CDI Diário: ${cdiDiario}%`);
     } catch (e) {
-      console.error("[BCB] Erro ao buscar CDI, usando fallback de 0.04% ao dia");
+      console.error("[BCB] Erro ao buscar CDI, usando fallback");
       prices['GLOBAL_CDI'] = 0.0004;
     }
 
-    // Dólar via AwesomeAPI
-    let usdToBrl = 5.40;
+    // 2. Moedas (AwesomeAPI)
+    prices['USDBRL'] = 5.40;
+    prices['EURBRL'] = 6.00;
+    prices['GBPBRL'] = 7.00;
+
     try {
-      const exchangeRes = await axios.get('https://economia.awesomeapi.com.br/last/USD-BRL');
-      usdToBrl = parseFloat(exchangeRes.data.USDBRL.bid);
-      console.log(`[Câmbio] Dólar: R$ ${usdToBrl}`);
+      const exchangeRes = await axios.get('https://economia.awesomeapi.com.br/last/USD-BRL,EUR-BRL,GBP-BRL');
+      if (exchangeRes.data.USDBRL) prices['USDBRL'] = parseFloat(exchangeRes.data.USDBRL.bid);
+      if (exchangeRes.data.EURBRL) prices['EURBRL'] = parseFloat(exchangeRes.data.EURBRL.bid);
+      if (exchangeRes.data.GBPBRL) prices['GBPBRL'] = parseFloat(exchangeRes.data.GBPBRL.bid);
+      console.log(`[Câmbio] USD: ${prices['USDBRL']} | EUR: ${prices['EURBRL']} | GBP: ${prices['GBPBRL']}`);
     } catch (e) {
-      console.error("[Câmbio] Erro na AwesomeAPI, usando 5.40 como fallback");
+      console.error("[Câmbio] Erro API");
     }
 
-    // Define cotação para tickers de moeda
-    prices['DOLAR'] = usdToBrl;
-    prices['USDBRL'] = usdToBrl;
-
-    // Grupo de Ações/FIIs/BDRs (Brapi)
-    // Filtramos CRIPTOS e os tickers da moeda (DOLAR/USDBRL)
-    const stockAssets = assets.filter(a =>
-      a.investment_type !== 'CRIPTOS' &&
-      a.ticker !== 'DOLAR' &&
-      a.ticker !== 'USDBRL'
+    // 3. Ações / FIIs / BDRs (Brapi)
+    
+    // Filtro rigoroso: Apenas o que a Brapi suporta (Ações, FIIs, BDRs)
+    const stockAssets = assets.filter(a => 
+      ['ACOES', 'FII', 'INTERNACIONAL', 'OUTROS'].includes(a.investment_type) &&
+      !['USDBRL', 'EURBRL', 'GBPBRL', 'Tesouro Direto', 'Cof. Picpay'].includes(a.ticker)
     );
 
     if (stockAssets.length > 0) {
-      // Adiciona .SA se for BDR (termina em 34) ou se não tiver ponto (ações comuns)
-      const tickers = stockAssets.map(a => {
-        const t = a.ticker.trim().toUpperCase();
+      // Mapa de tradução para tickers que a Brapi não reconhece direto
+      const tickerMap = {
+        'TSMC': 'TSMC34',
+        'APPLE': 'AAPL34',
+        'IVVB11': 'IVVB11',
+        'TMC': 'TSMC34'
+      };
+
+      // Helper para obter o ticker correto da API
+      const getApiTicker = (ticker) => {
+        const t = ticker.trim().toUpperCase();
+        if (tickerMap[t]) return tickerMap[t];
+        // Se for BDR (34), ETF/FII (11) ou Ação (3/4), usa .SA
         return (t.endsWith('34') || !t.includes('.')) ? `${t}.SA` : t;
-      });
+      };
+
+      // Prepara lista para o Lote
+      const tickersParaBusca = stockAssets.map(a => getApiTicker(a.ticker));
+      const uniqueTickers = [...new Set(tickersParaBusca)];
 
       try {
-        console.log(`[Brapi] Lote: ${tickers.join(',')}`);
-        const response = await axios.get(`https://brapi.dev/api/quote/${tickers.join(',')}?token=${brapiToken}`);
+        console.log(`[Brapi] Buscando Lote: ${uniqueTickers.join(',')}`);
+        const response = await axios.get(`https://brapi.dev/api/quote/${uniqueTickers.join(',')}?token=${brapiToken}`);
 
-        response.data.results.forEach((r: any) => {
-          if (r.regularMarketPrice) {
-            // Removemos o .SA do símbolo de retorno para bater com o ticker original do banco
-            const originalTicker = r.symbol.replace('.SA', '');
-            prices[originalTicker] = (r.currency === 'USD') ? r.regularMarketPrice * usdToBrl : r.regularMarketPrice;
-          }
+        response.data.results.forEach((r) => {
+          // Encontra quais ativos do banco correspondem a esse resultado da API
+          const dbAssets = stockAssets.filter(a => {
+             const apiSymbol = getApiTicker(a.ticker);
+             // Compara com .SA e sem .SA para garantir match
+             return apiSymbol === r.symbol || apiSymbol === r.symbol.replace('.SA', '');
+          });
+
+          dbAssets.forEach(asset => {
+             if (r.regularMarketPrice) {
+                // Se a moeda for USD, converte para BRL usando a cotação do dia
+                prices[asset.ticker] = (r.currency === 'USD') ? r.regularMarketPrice * prices['USDBRL'] : r.regularMarketPrice;
+             }
+          });
         });
       } catch (err) {
-        console.warn("[Brapi] Lote falhou. Tentando busca individual...");
+        console.warn("[Brapi] Lote falhou. Tentando individualmente...");
+        
+        // Fallback Individual
         for (const asset of stockAssets) {
           try {
-            const r = await axios.get(`https://brapi.dev/api/quote/${asset.ticker}?token=${brapiToken}`);
+            const apiTicker = getApiTicker(asset.ticker); 
+            const r = await axios.get(`https://brapi.dev/api/quote/${apiTicker}?token=${brapiToken}`);
             const data = r.data.results[0];
-            if (data.regularMarketPrice) {
-              prices[asset.ticker] = (data.currency === 'USD') ? data.regularMarketPrice * usdToBrl : data.regularMarketPrice;
+            if (data && data.regularMarketPrice) {
+               prices[asset.ticker] = (data.currency === 'USD') ? data.regularMarketPrice * prices['USDBRL'] : data.regularMarketPrice;
             }
-          } catch (e) { console.error(`[Brapi] Erro no ticker: ${asset.ticker}`); }
+          } catch (e) { 
+            console.error(`[Brapi] Erro individual em ${asset.ticker} (buscado como ${getApiTicker(asset.ticker)})`); 
+          }
         }
       }
     }
 
-    // Criptos (Brapi + CoinMarketCap Fallback)
+    // 4. Criptos (Brapi ou CoinMarketCap)
     const cryptoAssets = assets.filter(a => a.investment_type === 'CRIPTOS');
     for (const asset of cryptoAssets) {
-      const ticker = asset.ticker.trim().toUpperCase();
-      try {
-        const bRes = await axios.get(`https://brapi.dev/api/v2/crypto?coin=${ticker}&token=${brapiToken}`);
-        prices[ticker] = bRes.data.coins[0].regularMarketPrice;
-      } catch (e) {
-        if (process.env.CMC_PRO_API_KEY) {
-          try {
-            const cmcRes = await axios.get(`https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?symbol=${ticker}&convert=BRL`, {
-              headers: { 'X-CMC_PRO_API_KEY': process.env.CMC_PRO_API_KEY }
-            });
-            prices[ticker] = cmcRes.data.data[ticker].quote.BRL.price;
-          } catch (err) { console.error(`[CMC] Erro em ${ticker}`); }
-        }
-      }
-    }
-
-    // Alpha Vantage Fallback (Apenas ativos internacionais que a Brapi não resolveu)
-    const pendingIntl = stockAssets.filter(a => a.investment_type === 'INTERNACIONAL' && !prices[a.ticker]);
-    for (const asset of pendingIntl) {
-      try {
-        let searchTicker = asset.ticker.toUpperCase();
-
-        // Converte BDR para Ticker Americano
-        if (searchTicker.endsWith('34')) {
-          searchTicker = searchTicker.replace('34', ''); // Ex: TSMC34 -> TSMC
-        }
-
-        // Mapeamento manual para casos onde o nome muda (ex: TSMC em NY é apenas TSM)
-        const manualMapping: Record<string, string> = {
-          'TSMC': 'TSM',
-          'APPLE': 'AAPL',
-          'GOGL': 'GOOGL'
-        };
-        if (manualMapping[searchTicker]) searchTicker = manualMapping[searchTicker];
-
-        console.log(`[AlphaVantage] Traduzido: ${asset.ticker} -> ${searchTicker}`);
-
-        const avRes = await axios.get(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${searchTicker}&apikey=${process.env.ALPHA_VANTAGE_KEY}`);
-        const priceUSD = parseFloat(avRes.data["Global Quote"]?.["05. price"]);
-
-        if (!isNaN(priceUSD)) {
-          prices[asset.ticker] = priceUSD * usdToBrl;
-          await delay(12000);
-        }
-      } catch (e) {
-        console.error(`[AlphaVantage] Falha em ${asset.ticker}`);
-      }
+       const ticker = asset.ticker.trim().toUpperCase();
+       try {
+         const bRes = await axios.get(`https://brapi.dev/api/v2/crypto?coin=${ticker}&token=${brapiToken}`);
+         if (bRes.data.coins && bRes.data.coins[0]) {
+            prices[ticker] = bRes.data.coins[0].regularMarketPrice;
+         }
+       } catch (e) { 
+          // Fallback CMC
+          if (process.env.CMC_PRO_API_KEY) {
+            try {
+               const cmcRes = await axios.get(`https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?symbol=${ticker}&convert=BRL`, { headers: { 'X-CMC_PRO_API_KEY': process.env.CMC_PRO_API_KEY } });
+               prices[ticker] = cmcRes.data.data[ticker].quote.BRL.price;
+            } catch (err2) { console.error(`[CMC] Erro em ${ticker}`); }
+          }
+       }
     }
 
     res.json(prices);
   } catch (err) {
-    console.error("[Preços] Erro geral:", err);
-    res.status(500).json({ error: 'Erro ao buscar cotações' });
+    console.error("[Preços] Erro Crítico:", err);
+    res.status(500).json({ error: 'Erro interno' });
   }
 });
 
@@ -577,10 +572,19 @@ app.put('/assets/price', async (req, res) => {
 
   try {
     const val = price && parseFloat(price) > 0 ? parseFloat(price) : null;
+    const cleanTicker = ticker.trim(); 
 
-    await query('UPDATE assets SET manual_price = $1 WHERE ticker = $2', [val, ticker]);
+    const sql = `
+      INSERT INTO assets (ticker, manual_price) 
+      VALUES ($1, $2) 
+      ON CONFLICT (ticker) 
+      DO UPDATE SET manual_price = EXCLUDED.manual_price
+    `;
+
+    await query(sql, [cleanTicker, val]);
     res.json({ status: 'ok' });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: 'Erro ao atualizar preço ativo' });
   }
 });

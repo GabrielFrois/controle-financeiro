@@ -5,7 +5,7 @@ import Sidebar from './components/Sidebar';
 import Dashboard from './pages/Dashboard';
 import Transactions from './pages/Transactions';
 import Investments from './pages/Investments';
-import Management from './pages/Manegements';
+import Management from './pages/Management.tsx';
 import Budgets from './pages/Budgets';
 import Reports from './pages/Reports';
 

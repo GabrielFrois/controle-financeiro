@@ -19,7 +19,7 @@ export function useTransactionAnalytics(
 ) {
   return useMemo(() => {
     try {
-      const { categoryFilter, userFilter, typeFilter, startDate, endDate } = filters;
+      const { categoryFilter, userFilter, typeFilter } = filters;
       const today = new Date();
 
       // ── Trend data (12-month rolling window) ──────────────────────────────

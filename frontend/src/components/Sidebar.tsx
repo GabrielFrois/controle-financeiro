@@ -1,6 +1,6 @@
 import {
   Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText,
-  Toolbar, Typography, Divider, IconButton, Box, useTheme,
+  Toolbar, Typography, Divider, IconButton, Box,
 } from '@mui/material';
 import {
   Dashboard, SwapHoriz, Settings, TrackChanges,

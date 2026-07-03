@@ -1,6 +1,5 @@
 import { Box, Typography, Stack, ToggleButtonGroup, ToggleButton } from '@mui/material';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
-import { useTheme } from '@mui/material';
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#9c27b0'];
 
@@ -55,10 +54,13 @@ export default function AllocationChart({ viewMode, data, patrimonioTotal, onVie
             </Pie>
             <Tooltip
               cursor={{ fill: 'transparent' }}
-              formatter={(value: number, name: string) => [
-                `${formatCurrency(value)} (${((value / patrimonioTotal) * 100).toFixed(2)}%)`,
-                formatLabel(name),
-              ]}
+              formatter={(value: number | undefined, name: string | number | undefined) => {
+                const numericValue = value ?? 0;
+                return [
+                  `${formatCurrency(numericValue)} (${((numericValue / patrimonioTotal) * 100).toFixed(2)}%)`,
+                  formatLabel(String(name ?? '')),
+                ];
+              }}
               contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}
             />
           </PieChart>

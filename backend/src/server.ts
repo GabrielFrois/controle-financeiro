@@ -80,6 +80,13 @@ app.use('/profile',         profileRouter);
 app.get('/credit-card/invoice', authenticate, getInvoice);
 app.get('/summary',             authenticate, getSummary);
 
-app.listen(PORT, () => {
-  console.log(`>>> Backend rodando em http://localhost:${PORT}`);
-});
+// Na Vercel (Services) o Express é usado como um handler de requisição, não
+// como um servidor de longa duração — o import do módulo não deve abrir uma
+// porta. Fora da Vercel (dev local, outros PaaS), sobe normalmente.
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`>>> Backend rodando em http://localhost:${PORT}`);
+  });
+}
+
+export default app;

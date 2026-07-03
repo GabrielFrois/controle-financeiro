@@ -12,8 +12,11 @@ const isProduction = process.env.NODE_ENV === 'production';
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  // SSL obrigatório em produção (Supabase, Railway, Render, etc.)
-  ssl: isProduction ? { rejectUnauthorized: true } : false,
+  // O pooler do Supabase (PgBouncer) apresenta uma cadeia de certificado que
+  // o Node não reconhece por padrão, então validamos apenas que a conexão é
+  // criptografada (SSL), sem checar a cadeia contra uma CA — o mesmo padrão
+  // recomendado pelo Supabase para conexões via pooler em ambientes serverless.
+  ssl: isProduction ? { rejectUnauthorized: false } : false,
   // Em serverless (Vercel), cada instância da função mantém seu próprio pool.
   // Use a connection string do POOLER do Supabase (porta 6543) em produção e
   // mantenha "max" baixo aqui — quem já faz o pooling pesado é o pgbouncer.

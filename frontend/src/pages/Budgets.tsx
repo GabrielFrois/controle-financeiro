@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useFamily } from '../context/FamilyContext';
 import { 
   Box, Typography, LinearProgress, Paper, Grid, CircularProgress, 
   useTheme, Button, Dialog, DialogTitle, DialogContent, 
@@ -10,6 +11,7 @@ import api from '../services/api';
 
 export default function Budgets() {
   const theme = useTheme();
+  const { activeUserIds } = useFamily();
   const [loading, setLoading] = useState(true);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [budgets, setBudgets] = useState<any[]>([]);
@@ -25,8 +27,11 @@ export default function Budgets() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
+      const userParams = activeUserIds.length > 0
+        ? { params: { user_ids: activeUserIds.join(',') } }
+        : {};
       const [transRes, budgetRes, catRes] = await Promise.all([
-        api.get('/transactions'),
+        api.get('/transactions', userParams),
         api.get('/budgets'),
         api.get('/categories')
       ]);
@@ -38,7 +43,7 @@ export default function Budgets() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [activeUserIds]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -121,7 +126,7 @@ export default function Budgets() {
     else if (b.percent > 70) progressColor = theme.palette.warning.main;
 
     return (
-      <Grid item xs={12} sm={6} md={3} key={b.id}>
+      <Grid size={{ xs: 12, sm: 6, md: 3 }} key={b.id}>
         <Paper sx={{ 
           p: 3, 
           borderRadius: 5, 

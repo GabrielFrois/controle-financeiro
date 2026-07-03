@@ -1,3 +1,21 @@
+export interface AuthUser {
+  id: number;
+  name: string;
+  email: string;
+  role: 'admin' | 'member';
+  color: string;
+  active?: boolean;
+}
+
+export interface User {
+  id: number;
+  name: string;
+  email: string;
+  color: string;
+  role: 'admin' | 'member';
+  active: boolean;
+}
+
 export interface Transaction {
   id: string;
   description: string;

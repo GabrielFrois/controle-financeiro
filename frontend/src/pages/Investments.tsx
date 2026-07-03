@@ -2,9 +2,9 @@ import { useState, useEffect } from 'react';
 import {
   Grid, Paper, Typography, Box, CircularProgress, useTheme,
   Stack, Tab, Tabs, Table, TableBody, TableCell, TableContainer,
-  TableHead, TableRow, Chip, TextField, MenuItem, Slider, styled,
+  TableHead, TableRow, Chip, Slider, styled,
   Tooltip as MuiTooltip, TablePagination, Divider, IconButton,
-  Dialog, DialogTitle, DialogContent, DialogActions, Button, InputAdornment,
+  Dialog, DialogTitle, DialogContent, DialogActions, Button, InputAdornment, TextField,
 } from '@mui/material';
 import {
   TrendingUp, AccountBalance, Stars, PieChart as PieIcon,
@@ -17,6 +17,7 @@ import {
 } from 'recharts';
 import api from '../services/api';
 import { useInvestments } from '../hooks/useInvestments';
+import { useFamily } from '../context/FamilyContext';
 import KPICard from '../components/investments/KPICard';
 import AllocationChart from '../components/investments/AllocationChart';
 
@@ -39,15 +40,16 @@ const compactCell = { px: 1 };
 // ─── component ───────────────────────────────────────────────────────────────
 export default function Investments() {
   const theme = useTheme();
+  const { activeLabel } = useFamily();
 
-  const [userFilter, setUserFilter]       = useState('Todos');
-  const { loading, stats, userList, fetchData } = useInvestments(userFilter);
+  // userFilter fixo em 'Todos' — filtragem real já vem do FamilyContext via useInvestments
+  const { loading, stats, fetchData } = useInvestments('Todos');
 
   const [tabValue, setTabValue]           = useState(0);
   const [chartViewMode, setChartViewMode] = useState<'assets' | 'types' | 'geo'>('types');
   const [page, setPage]                   = useState(0);
   const [detailPage, setDetailPage]       = useState(0);
-  const rowsPerPage      = 7;
+  const rowsPerPage       = 7;
   const detailRowsPerPage = 10;
 
   const [startDiv, setStartDiv] = useState(0);
@@ -57,7 +59,6 @@ export default function Investments() {
   const [editAsset, setEditAsset] = useState<{ ticker: string; currentPm: number } | null>(null);
   const [newPm, setNewPm]         = useState('');
 
-  // Initialise slider positions when history loads
   useEffect(() => {
     if (stats.fullHistory.length > 0) {
       const latestStart = Math.max(0, stats.fullHistory.length - WINDOW_SIZE);
@@ -65,10 +66,6 @@ export default function Investments() {
       setStartPat(latestStart);
     }
   }, [stats.fullHistory.length]);
-
-  const handleUserFilterChange = (val: string) => {
-    setUserFilter(val); setPage(0); setDetailPage(0);
-  };
 
   const handleOpenEdit = (ticker: string, currentVal: number) => {
     setEditAsset({ ticker, currentPm: currentVal });
@@ -120,10 +117,13 @@ export default function Investments() {
           <Tab icon={<TableView />} iconPosition="start" label="Posições" />
           <Tab icon={<Timeline />}  iconPosition="start" label="Evolução" />
         </Tabs>
-        <TextField select label="Usuário" size="small" sx={{ width: 180, mb: 1 }} value={userFilter} onChange={(e) => handleUserFilterChange(e.target.value)}>
-          <MenuItem value="Todos">Todos</MenuItem>
-          {userList.map((u) => <MenuItem key={u} value={u}>{u}</MenuItem>)}
-        </TextField>
+        <Chip
+          label={`Visão: ${activeLabel}`}
+          color="primary"
+          variant="outlined"
+          size="small"
+          sx={{ fontWeight: 700, mb: 1 }}
+        />
       </Box>
 
       {/* KPI Cards */}

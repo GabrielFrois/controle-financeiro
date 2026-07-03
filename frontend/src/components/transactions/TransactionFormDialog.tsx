@@ -7,7 +7,8 @@ import {
 import { AccountBalanceWallet } from '@mui/icons-material';
 import CreditCardIcon from '@mui/icons-material/CreditCard';
 import { useMemo } from 'react';
-import type { Category, User, PaymentMethod } from '../../types';
+import type { Category, PaymentMethod } from '../../types';
+
 export interface TransactionForm {
   description: string; amount: string; type: string;
   category_id: string; user_id: string; date: string;
@@ -23,7 +24,6 @@ interface Props {
   editAllFuture: boolean;
   paymentMode: 'DEBIT' | 'CREDIT';
   form: TransactionForm;
-  users: User[];
   categories: Category[];
   paymentMethods: PaymentMethod[];
   onClose: () => void;
@@ -36,7 +36,7 @@ interface Props {
 export default function TransactionFormDialog({
   open, isEditing, editingHasGroup, editAllFuture,
   paymentMode, form,
-  users, categories, paymentMethods,
+  categories, paymentMethods,
   onClose, onSubmit, onFormChange,
   onPaymentModeChange, onEditAllFutureChange,
 }: Props) {
@@ -82,25 +82,13 @@ export default function TransactionFormDialog({
               </Grid>
             </Grid>
 
-            <Grid container spacing={2}>
-              <Grid size={{ xs: 6 }}>
-                <FormControl fullWidth>
-                  <InputLabel>Tipo</InputLabel>
-                  <Select value={form.type} label="Tipo" onChange={(e) => onFormChange({ ...form, type: e.target.value, category_id: '' })}>
-                    <MenuItem value="EXPENSE">Despesa</MenuItem>
-                    <MenuItem value="INCOME">Receita</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid size={{ xs: 6 }}>
-                <FormControl fullWidth required>
-                  <InputLabel>Usuário</InputLabel>
-                  <Select value={form.user_id} label="Usuário" onChange={set('user_id')}>
-                    {users.filter((u) => u.active).map((u) => <MenuItem key={u.id} value={u.id}>{u.name}</MenuItem>)}
-                  </Select>
-                </FormControl>
-              </Grid>
-            </Grid>
+            <FormControl fullWidth>
+              <InputLabel>Tipo</InputLabel>
+              <Select value={form.type} label="Tipo" onChange={(e) => onFormChange({ ...form, type: e.target.value, category_id: '' })}>
+                <MenuItem value="EXPENSE">Despesa</MenuItem>
+                <MenuItem value="INCOME">Receita</MenuItem>
+              </Select>
+            </FormControl>
 
             <FormControl fullWidth required>
               <InputLabel>Categoria</InputLabel>

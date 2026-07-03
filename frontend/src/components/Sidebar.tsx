@@ -1,15 +1,14 @@
-import { Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Toolbar, Typography, Divider, IconButton, Box, useTheme } from '@mui/material';
-import { 
-  Dashboard, 
-  SwapHoriz, 
-  Settings, 
-  TrackChanges,
-  Assessment, 
-  Brightness4, 
-  Brightness7, 
-  Savings 
+import {
+  Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText,
+  Toolbar, Typography, Divider, IconButton, Box, useTheme,
+} from '@mui/material';
+import {
+  Dashboard, SwapHoriz, Settings, TrackChanges,
+  Assessment, Brightness4, Brightness7, Savings, Logout,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import FamilyToggle from './FamilyToggle';
 
 const drawerWidth = 240;
 
@@ -19,17 +18,17 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ toggleTheme, mode }: SidebarProps) {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const theme = useTheme();
+  const navigate  = useNavigate();
+  const location  = useLocation();
+  const { user, logout } = useAuth();
 
   const menuItems = [
-    { text: 'Dashboard', icon: <Dashboard />, path: '/' },
-    { text: 'Transações', icon: <SwapHoriz />, path: '/transactions' },
-    { text: 'Investimentos', icon: <Savings />, path: '/investments' },
-    { text: 'Metas', icon: <TrackChanges />, path: '/budgets' },
-    { text: 'Relatórios', icon: <Assessment />, path: '/reports' },
-    { text: 'Gestão', icon: <Settings />, path: '/management' },
+    { text: 'Dashboard',    icon: <Dashboard />,    path: '/' },
+    { text: 'Transações',   icon: <SwapHoriz />,    path: '/transactions' },
+    { text: 'Investimentos', icon: <Savings />,      path: '/investments' },
+    { text: 'Metas',        icon: <TrackChanges />, path: '/budgets' },
+    { text: 'Relatórios',   icon: <Assessment />,   path: '/reports' },
+    { text: 'Gestão',       icon: <Settings />,     path: '/management' },
   ];
 
   return (
@@ -49,45 +48,45 @@ export default function Sidebar({ toggleTheme, mode }: SidebarProps) {
           {mode === 'dark' ? <Brightness7 /> : <Brightness4 />}
         </IconButton>
       </Toolbar>
+
       <Divider />
-      <Box sx={{ overflow: 'auto' }}>
+
+      <Box sx={{ overflow: 'auto', flexGrow: 1 }}>
         <List>
           {menuItems.map((item) => {
             const isSelected = location.pathname === item.path;
-            
             return (
               <ListItem key={item.text} disablePadding sx={{ mb: 0.5 }}>
-                <ListItemButton 
+                <ListItemButton
                   onClick={() => navigate(item.path)}
                   selected={isSelected}
-                  sx={{
-                    mx: 1,
-                    borderRadius: '10px',
-                    '&.Mui-selected': {
-                      bgcolor: `${theme.palette.primary.main}15`,
-                      color: theme.palette.primary.main,
-                      '&:hover': {
-                        bgcolor: `${theme.palette.primary.main}25`,
-                      },
-                      '& .MuiListItemIcon-root': {
-                        color: theme.palette.primary.main,
-                      }
-                    }
-                  }}
+                  sx={{ borderRadius: 2, mx: 1 }}
                 >
-                  <ListItemIcon sx={{ color: isSelected ? 'inherit' : 'text.secondary' }}>
-                    {item.icon}
-                  </ListItemIcon>
-                  <ListItemText 
-                    primary={item.text} 
-                    primaryTypographyProps={{ fontWeight: isSelected ? 'bold' : 'medium' }} 
-                  />
+                  <ListItemIcon>{item.icon}</ListItemIcon>
+                  <ListItemText primary={item.text} />
                 </ListItemButton>
               </ListItem>
             );
           })}
         </List>
       </Box>
+
+      <Divider />
+      <FamilyToggle />
+      <Divider />
+
+      <List>
+        <ListItem disablePadding>
+          <ListItemButton onClick={logout} sx={{ borderRadius: 2, mx: 1 }}>
+            <ListItemIcon><Logout /></ListItemIcon>
+            <ListItemText
+              primary="Sair"
+              secondary={user?.name}
+              secondaryTypographyProps={{ noWrap: true }}
+            />
+          </ListItemButton>
+        </ListItem>
+      </List>
     </Drawer>
   );
 }

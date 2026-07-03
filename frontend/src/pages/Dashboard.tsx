@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { useFamily } from '../context/FamilyContext';
 import { 
   Grid, Paper, Typography, Card, CardContent, Box, 
   CircularProgress, useTheme, Avatar, Divider, List, 
@@ -15,6 +16,7 @@ import api from '../services/api';
 
 export default function Dashboard() {
   const theme = useTheme();
+  const { activeUserIds } = useFamily();
   const [loading, setLoading] = useState(true);
   
   // Estado de visualização: Mês, Ano ou Tudo
@@ -55,9 +57,15 @@ export default function Dashboard() {
       summaryUrl = `/summary?year=${currentYear}`;
     }
 
+    const userParams = activeUserIds.length > 0
+      ? { params: { user_ids: activeUserIds.join(',') } }
+      : {};
+
+    // user_ids aplicado tanto em /summary quanto em /transactions
+    // para garantir que o resumo financeiro respeite o filtro de usuários ativo
     const [sumRes, transRes] = await Promise.all([
-      api.get(summaryUrl),
-      api.get('/transactions')
+      api.get(summaryUrl, userParams),
+      api.get('/transactions', userParams)
     ]);
 
     setSummary(sumRes.data);
@@ -114,7 +122,7 @@ export default function Dashboard() {
   } finally {
     setLoading(false);
   }
-}, [viewMode]);
+}, [viewMode, activeUserIds]);
 
   useEffect(() => {
     fetchData();

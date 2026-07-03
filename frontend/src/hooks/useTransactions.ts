@@ -1,10 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import api from '../services/api';
+import { useFamily } from '../context/FamilyContext';
 import type { Transaction, User, Category, PaymentMethod } from '../types';
 
 export type { Transaction, User, Category, PaymentMethod };
 
 export function useTransactions() {
+  const { activeUserIds } = useFamily();
+
   const [loading, setLoading]               = useState(true);
   const [transactions, setTransactions]     = useState<Transaction[]>([]);
   const [users, setUsers]                   = useState<User[]>([]);
@@ -14,8 +17,12 @@ export function useTransactions() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
+      const params = activeUserIds.length > 0
+        ? { params: { user_ids: activeUserIds.join(',') } }
+        : {};
+
       const [transRes, userRes, catRes, payRes] = await Promise.all([
-        api.get('/transactions'),
+        api.get('/transactions', params),
         api.get('/users'),
         api.get('/categories'),
         api.get('/payment-methods'),
@@ -29,7 +36,7 @@ export function useTransactions() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [activeUserIds]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 

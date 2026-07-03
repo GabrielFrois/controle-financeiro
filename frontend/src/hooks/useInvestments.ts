@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import api from '../services/api';
+import { useFamily } from '../context/FamilyContext';
 
 export interface InvestmentTransaction {
   id: string;
@@ -35,6 +36,23 @@ export interface ConsolidatedPosition {
   isManual: boolean;
 }
 
+// Categorias que identificam transações de investimento
+const INVESTMENT_CATEGORY_KEYWORDS = [
+  'investimento',
+  'aporte',
+  'reinvestimento',
+  'resgate',
+  'dividendo',
+  'jcp',
+  'provento',
+];
+
+function isInvestmentCategory(categoryName: string): boolean {
+  if (!categoryName) return false;
+  const lower = categoryName.toLowerCase();
+  return INVESTMENT_CATEGORY_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
 function findManualPrice(assetsList: AssetRecord[], identifier: string): number | null {
   if (!identifier) return null;
   const asset = assetsList.find((a) => a.ticker.toUpperCase() === identifier.toUpperCase());
@@ -42,6 +60,8 @@ function findManualPrice(assetsList: AssetRecord[], identifier: string): number 
 }
 
 export function useInvestments(userFilter: string) {
+  const { activeUserIds } = useFamily();
+
   const [loading, setLoading]           = useState(true);
   const [transactions, setTransactions] = useState<InvestmentTransaction[]>([]);
   const [marketPrices, setMarketPrices] = useState<Record<string, number>>({});
@@ -50,8 +70,12 @@ export function useInvestments(userFilter: string) {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
+      const params = activeUserIds.length > 0
+        ? { params: { user_ids: activeUserIds.join(',') } }
+        : {};
+
       const [transRes, pricesRes, assetsRes] = await Promise.all([
-        api.get('/transactions'),
+        api.get('/transactions', params),
         api.get('/assets/prices').catch(() => ({ data: {} })),
         api.get('/assets').catch(() => ({ data: [] })),
       ]);
@@ -63,7 +87,7 @@ export function useInvestments(userFilter: string) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [activeUserIds]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -76,9 +100,10 @@ export function useInvestments(userFilter: string) {
     const filteredByUser = transactions.filter(
       (t) => userFilter === 'Todos' || t.user_name === userFilter
     );
-    const investTrans = filteredByUser.filter((t) =>
-      t?.category_name?.toLowerCase().includes('investimento')
-    );
+
+    // Filtro robusto: aceita qualquer categoria relacionada a investimentos
+    const investTrans = filteredByUser.filter((t) => isInvestmentCategory(t?.category_name));
+
     const cdiDiarioOficial = marketPrices.GLOBAL_CDI || 0.00041;
 
     const positionMap: Record<string, any> = {};
@@ -92,7 +117,7 @@ export function useInvestments(userFilter: string) {
       const qtd = Number(t.quantity || 0);
 
       if (isRF) {
-        const nomeTitulo      = t.asset_ticker || t.description;
+        const nomeTitulo       = t.asset_ticker || t.description;
         const manualPriceFound = findManualPrice(assetsList, nomeTitulo);
 
         const dataMovimentacao = new Date(t.date.split('T')[0] + 'T12:00:00');
@@ -104,7 +129,10 @@ export function useInvestments(userFilter: string) {
         const valorAtualizado  = val * Math.pow(1 + rentDiaria, diasUteis);
 
         if (!rfMap[nomeTitulo]) {
-          rfMap[nomeTitulo] = { ticker: nomeTitulo, quantity: 0, totalCost: 0, currentTotal: 0, isRF: true, type: 'RENDA_FIXA', manualPrice: null };
+          rfMap[nomeTitulo] = {
+            ticker: nomeTitulo, quantity: 0, totalCost: 0,
+            currentTotal: 0, isRF: true, type: 'RENDA_FIXA', manualPrice: null,
+          };
         }
         if (manualPriceFound !== null) rfMap[nomeTitulo].manualPrice = manualPriceFound;
         if (!isResgate) rfMap[nomeTitulo].quantity += 1;
@@ -126,16 +154,24 @@ export function useInvestments(userFilter: string) {
         const manualPriceFound = findManualPrice(assetsList, ticker);
 
         if (!positionMap[ticker]) {
-          positionMap[ticker] = { ticker, quantity: 0, totalCost: 0, type: t.investment_type || 'OUTROS', manualPrice: null };
+          positionMap[ticker] = {
+            ticker, quantity: 0, totalCost: 0,
+            type: t.investment_type || 'OUTROS',
+            manualPrice: null,
+          };
         }
+        // manual_price de renda variável = preço atual de mercado (substituição à API),
+        // NÃO deve afetar o cálculo de custo médio.
         if (manualPriceFound !== null) positionMap[ticker].manualPrice = manualPriceFound;
         positionMap[ticker].quantity  += isResgate ? -qtd : qtd;
-        positionMap[ticker].totalCost += val;
+        // totalCost acumula o valor real pago (sem manual_price)
+        if (!isResgate) positionMap[ticker].totalCost += Math.abs(val);
+        else            positionMap[ticker].totalCost -= Math.abs(val);
       }
     });
 
     const rendaFixaItems: ConsolidatedPosition[] = Object.values(rfMap).map((item: any) => {
-      const finalTotal  = item.manualPrice ? item.manualPrice : item.currentTotal;
+      const finalTotal   = item.manualPrice ? item.manualPrice : item.currentTotal;
       const displayTotal = (!item.manualPrice && Math.abs(finalTotal) < 0.10) ? 0 : finalTotal;
       const displayCost  = (!item.manualPrice && Math.abs(item.totalCost) < 0.10) ? 0 : item.totalCost;
       return {
@@ -148,18 +184,19 @@ export function useInvestments(userFilter: string) {
     });
 
     const processedVariavel: ConsolidatedPosition[] = Object.values(positionMap)
-      .filter((p: any) => p.quantity > 0)
+      .filter((p: any) => p.quantity > 0.0001)
       .map((p: any) => {
-        const avgPrice          = p.manualPrice ? p.manualPrice : (p.totalCost / p.quantity);
-        const effectiveTotalCost = avgPrice * p.quantity;
-        const currentPrice      = marketPrices[p.ticker] || avgPrice;
-        const currentTotal      = currentPrice * p.quantity;
+        const avgPrice     = p.quantity > 0 ? p.totalCost / p.quantity : 0;
+        // Prioridade de preço atual: 1) API de mercado, 2) manual_price, 3) custo médio
+        const currentPrice = marketPrices[p.ticker] ?? p.manualPrice ?? avgPrice;
+        const currentTotal = currentPrice * p.quantity;
         return {
-          ...p, avgPrice, totalCost: effectiveTotalCost,
+          ...p, avgPrice, totalCost: p.totalCost,
           currentPrice, currentTotal,
-          profitLoss: currentTotal - effectiveTotalCost,
-          performance: effectiveTotalCost > 0 ? ((currentTotal / effectiveTotalCost) - 1) * 100 : 0,
-          isRF: false, isManual: !!p.manualPrice,
+          profitLoss: currentTotal - p.totalCost,
+          performance: p.totalCost > 0 ? ((currentTotal / p.totalCost) - 1) * 100 : 0,
+          isRF: false,
+          isManual: !marketPrices[p.ticker] && !!p.manualPrice,
         };
       });
 
@@ -169,7 +206,6 @@ export function useInvestments(userFilter: string) {
     const patrimonioMercado = consolidatedPosition.reduce((acc, c) => acc + c.currentTotal, 0);
     const custoTotal        = consolidatedPosition.reduce((acc, c) => acc + c.totalCost,    0);
 
-    // Allocation breakdowns
     const allocationByAsset = consolidatedPosition.map((p) => ({ name: p.ticker, value: p.currentTotal }));
     const typeMap = consolidatedPosition.reduce<Record<string, number>>((acc, curr) => {
       acc[curr.type] = (acc[curr.type] || 0) + curr.currentTotal;
@@ -178,11 +214,13 @@ export function useInvestments(userFilter: string) {
     const allocationByType = Object.entries(typeMap)
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value);
-    const totalIntl    = consolidatedPosition.filter((p) => ['INTERNACIONAL', 'CRIPTOS'].includes(p.type)).reduce((acc, c) => acc + c.currentTotal, 0);
+    const totalIntl     = consolidatedPosition.filter((p) => ['INTERNACIONAL', 'CRIPTOS'].includes(p.type)).reduce((acc, c) => acc + c.currentTotal, 0);
     const totalNacional = Math.max(0, patrimonioMercado - totalIntl);
-    const allocationByGeo = [{ name: 'Brasil', value: totalNacional }, { name: 'Exterior', value: totalIntl }].filter((i) => i.value > 0);
+    const allocationByGeo = [
+      { name: 'Brasil',  value: totalNacional },
+      { name: 'Exterior', value: totalIntl },
+    ].filter((i) => i.value > 0);
 
-    // History
     const fullHistory: any[] = [];
     if (investTrans.length > 0) {
       const dates   = investTrans.map((t) => new Date(t.date));
@@ -205,9 +243,10 @@ export function useInvestments(userFilter: string) {
         if (!historyMap.has(key)) return;
         const entry = historyMap.get(key)!;
         const val   = Number(t.amount || 0);
-        if      (t.category_name.includes('Dividendos'))                                      entry.dividendos += val;
-        else if (t.category_name.includes('Aporte') || t.category_name.includes('Reinvestimento')) entry.patrimony += val;
-        else if (t.category_name.includes('Resgate'))                                         entry.patrimony -= val;
+        const cat   = t.category_name.toLowerCase();
+        if      (cat.includes('dividendo') || cat.includes('jcp') || cat.includes('provento')) entry.dividendos += val;
+        else if (cat.includes('aporte') || cat.includes('reinvestimento'))                     entry.patrimony  += val;
+        else if (cat.includes('resgate'))                                                       entry.patrimony  -= val;
       });
       let accumulated = 0;
       historyMap.forEach((entry) => {
@@ -220,7 +259,12 @@ export function useInvestments(userFilter: string) {
     return {
       patrimonioTotal: patrimonioMercado,
       dinheiroDoBolso: custoTotal,
-      dividendos: investTrans.filter((t) => t.category_name.includes('Dividendos')).reduce((a, b) => a + Number(b.amount), 0),
+      dividendos: investTrans
+        .filter((t) => {
+          const cat = t.category_name.toLowerCase();
+          return cat.includes('dividendo') || cat.includes('jcp') || cat.includes('provento');
+        })
+        .reduce((a, b) => a + Number(b.amount), 0),
       lucroReal: patrimonioMercado - custoTotal,
       performanceGeral: custoTotal > 0 ? ((patrimonioMercado / custoTotal) - 1) * 100 : 0,
       allocationByAsset, allocationByType, allocationByGeo,

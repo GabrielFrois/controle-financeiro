@@ -30,6 +30,8 @@ import TransactionTable from '../components/transactions/TransactionTable';
 import TransactionFormDialog from '../components/transactions/TransactionFormDialog';
 import type { TransactionForm } from '../components/transactions/TransactionFormDialog';
 import DeleteTransactionDialog from '../components/transactions/DeleteTransactionDialog';
+import { useAuth } from '../context/AuthContext';
+import { useFamily } from '../context/FamilyContext';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 const formatCurrency = (val: any) =>
@@ -40,63 +42,63 @@ const formatRegistrationDate = (iso: string) => {
   return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
 };
 
-const now            = new Date();
-const DEFAULT_START  = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-const DEFAULT_END    = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
-const EMPTY_FORM: TransactionForm = {
+const now           = new Date();
+const DEFAULT_START = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+const DEFAULT_END   = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+
+const makeEmptyForm = (userId: string): TransactionForm => ({
   description: '', amount: '', type: 'EXPENSE',
-  category_id: '', user_id: '', date: new Date().toISOString().split('T')[0],
+  category_id: '', user_id: userId, date: new Date().toISOString().split('T')[0],
   payment_method_id: '', installments: '1',
   asset_ticker: '', quantity: '', investment_type: 'OUTROS', yield_rate: '',
-};
+});
 
 // ─── component ──────────────────────────────────────────────────────────────
 export default function Transactions() {
   const theme = useTheme();
-  const { loading, transactions, users, categories, paymentMethods, fetchData } = useTransactions();
+  const { user: authUser } = useAuth();
+  const { activeLabel } = useFamily();
+  const { loading, transactions, categories, paymentMethods, fetchData } = useTransactions();
   const {
     creditCards, selectedCardId, setSelectedCardId,
     invoiceMonth, setInvoiceMonth, invoiceData, jumpToCurrentInvoice,
   } = useInvoice(transactions, paymentMethods);
 
   // ── UI state ──────────────────────────────────────────────────────────────
-  const [tabValue, setTabValue]           = useState(0);
-  const [evolutionMode, setEvolutionMode] = useState<'daily' | 'weekly' | 'monthly'>('monthly');
-  const [trendUserFilter, setTrendUserFilter] = useState('Todos');
-  const [chartOffset, setChartOffset]     = useState(0);
+  const [tabValue, setTabValue]             = useState(0);
+  const [evolutionMode, setEvolutionMode]   = useState<'daily' | 'weekly' | 'monthly'>('monthly');
+  const [chartOffset, setChartOffset]       = useState(0);
 
-  const [page, setPage]                   = useState(0);
-  const [rowsPerPage, setRowsPerPage]     = useState(10);
+  const [page, setPage]                     = useState(0);
+  const [rowsPerPage, setRowsPerPage]       = useState(10);
   const [categoryFilter, setCategoryFilter] = useState('Todas');
-  const [userFilter, setUserFilter]       = useState('Todos');
-  const [typeFilter, setTypeFilter]       = useState('Todos');
-  const [startDate, setStartDate]         = useState(DEFAULT_START);
-  const [endDate, setEndDate]             = useState(DEFAULT_END);
+  const [typeFilter, setTypeFilter]         = useState('Todos');
+  const [startDate, setStartDate]           = useState(DEFAULT_START);
+  const [endDate, setEndDate]               = useState(DEFAULT_END);
 
   // ── Form / dialog state ───────────────────────────────────────────────────
-  const [open, setOpen]                   = useState(false);
-  const [isEditing, setIsEditing]         = useState(false);
-  const [editingId, setEditingId]         = useState<string | null>(null);
-  const [editAllFuture, setEditAllFuture] = useState(false);
-  const [paymentMode, setPaymentMode]     = useState<'DEBIT' | 'CREDIT'>('DEBIT');
-  const [form, setForm]                   = useState<TransactionForm>(EMPTY_FORM);
+  const [open, setOpen]                     = useState(false);
+  const [isEditing, setIsEditing]           = useState(false);
+  const [editingId, setEditingId]           = useState<string | null>(null);
+  const [editAllFuture, setEditAllFuture]   = useState(false);
+  const [paymentMode, setPaymentMode]       = useState<'DEBIT' | 'CREDIT'>('DEBIT');
+  const [form, setForm]                     = useState<TransactionForm>(makeEmptyForm(String(authUser?.id ?? '')));
 
-  const [deleteDialogOpen, setDeleteDialogOpen]     = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen]       = useState(false);
   const [transactionToDelete, setTransactionToDelete] = useState<Transaction | null>(null);
 
   // ── Derived data ──────────────────────────────────────────────────────────
   const filteredTransactions = useMemo(() => transactions.filter((t) => {
     const matchCategory = categoryFilter === 'Todas' || t.category_name === categoryFilter;
-    const matchUser     = userFilter  === 'Todos'   || t.user_name     === userFilter;
-    const matchType     = typeFilter  === 'Todos'   || t.type          === typeFilter;
+    const matchType     = typeFilter === 'Todos'    || t.type           === typeFilter;
     const tDate         = (t.date || '').split('T')[0];
-    return matchCategory && matchUser && matchType && tDate >= startDate && tDate <= endDate;
-  }), [transactions, categoryFilter, userFilter, typeFilter, startDate, endDate]);
+    return matchCategory && matchType && tDate >= startDate && tDate <= endDate;
+  }), [transactions, categoryFilter, typeFilter, startDate, endDate]);
 
   const analyticsData = useTransactionAnalytics(
     transactions, filteredTransactions, evolutionMode,
-    trendUserFilter, chartOffset,
-    { categoryFilter, userFilter, typeFilter, startDate, endDate }
+    'Todos', chartOffset,
+    { categoryFilter, userFilter: 'Todos', typeFilter, startDate, endDate }
   );
 
   const editingHasGroup = useMemo(
@@ -107,19 +109,21 @@ export default function Transactions() {
   // ── handlers ──────────────────────────────────────────────────────────────
   const handleOpenNew = () => {
     setIsEditing(false); setEditingId(null); setEditAllFuture(false);
-    setPaymentMode('DEBIT'); setForm(EMPTY_FORM); setOpen(true);
+    setPaymentMode('DEBIT');
+    setForm(makeEmptyForm(String(authUser?.id ?? '')));
+    setOpen(true);
   };
 
   const handlePayInvoice = (totalPending: number) => {
-    const card      = paymentMethods.find((m) => m.id === Number(selectedCardId));
-    const cardName  = (card as any)?.name ?? 'Cartão';
+    const card     = paymentMethods.find((m) => m.id === Number(selectedCardId));
+    const cardName = (card as any)?.name ?? 'Cartão';
     const [year, month] = invoiceMonth.split('-');
     const monthName = new Date(Number(year), Number(month) - 1, 15)
       .toLocaleDateString('pt-BR', { month: 'long' });
 
     setIsEditing(false); setEditingId(null); setEditAllFuture(false); setPaymentMode('DEBIT');
     setForm({
-      ...EMPTY_FORM,
+      ...makeEmptyForm(String(authUser?.id ?? '')),
       description: `Pagamento Fatura ${cardName} - ${monthName}/${year}`,
       amount: totalPending.toFixed(2),
     });
@@ -187,14 +191,14 @@ export default function Transactions() {
   const handleFilterChange = useCallback((field: string, value: string) => {
     const setters: Record<string, (v: string) => void> = {
       typeFilter: setTypeFilter, categoryFilter: setCategoryFilter,
-      userFilter: setUserFilter, startDate: setStartDate, endDate: setEndDate,
+      startDate: setStartDate, endDate: setEndDate,
     };
     setters[field]?.(value);
   }, []);
 
   const handleFilterReset = useCallback(() => {
     setStartDate(DEFAULT_START); setEndDate(DEFAULT_END);
-    setCategoryFilter('Todas'); setUserFilter('Todos');
+    setCategoryFilter('Todas');
   }, []);
 
   // ── render ────────────────────────────────────────────────────────────────
@@ -222,10 +226,10 @@ export default function Transactions() {
       {tabValue === 0 && (
         <>
           <TransactionFilters
-            typeFilter={typeFilter} categoryFilter={categoryFilter} userFilter={userFilter}
+            typeFilter={typeFilter} categoryFilter={categoryFilter}
             startDate={startDate} endDate={endDate}
             defaultStartDate={DEFAULT_START} defaultEndDate={DEFAULT_END}
-            categories={categories} users={users}
+            categories={categories}
             onChange={handleFilterChange} onReset={handleFilterReset}
           />
           <TransactionTable
@@ -373,7 +377,7 @@ export default function Transactions() {
           <Grid size={{ xs: 12, md: 7 }}>
             <Paper sx={{ p: 3, borderRadius: 5 }}>
               <Typography variant="h6" fontWeight="900" mb={3} display="flex" alignItems="center" gap={1}>
-                <Payments color="primary" /> RESUMO
+                <Payments color="primary" /> RESUMO — {activeLabel.toUpperCase()}
               </Typography>
               <Grid container spacing={2}>
                 {[
@@ -465,10 +469,13 @@ export default function Transactions() {
                   Visualizando: {analyticsData.trendData[0]?.name} até {analyticsData.trendData[11]?.name}
                 </Typography>
               </Stack>
-              <TextField select label="Usuário" size="small" sx={{ width: 200 }} value={trendUserFilter} onChange={(e) => setTrendUserFilter(e.target.value)}>
-                <MenuItem value="Todos">Todos</MenuItem>
-                {users.map((u) => <MenuItem key={u.id} value={u.name}>{u.name}</MenuItem>)}
-              </TextField>
+              <Chip
+                label={`Visão: ${activeLabel}`}
+                color="primary"
+                variant="outlined"
+                size="small"
+                sx={{ fontWeight: 700 }}
+              />
             </Paper>
           </Grid>
           <Grid size={{ xs: 12 }}>
@@ -506,7 +513,6 @@ export default function Transactions() {
         editAllFuture={editAllFuture}
         paymentMode={paymentMode}
         form={form}
-        users={users}
         categories={categories}
         paymentMethods={paymentMethods}
         onClose={() => setOpen(false)}

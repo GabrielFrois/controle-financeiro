@@ -56,7 +56,7 @@ app.use(cors({
 app.use(express.json());
 
 // Health check
-app.get('/health', async (_req, res) => {
+app.get('/api/health', async (_req, res) => {
   try {
     const result = await query('SELECT NOW()');
     res.json({ status: 'OK', database_time: result.rows[0].now });
@@ -66,19 +66,19 @@ app.get('/health', async (_req, res) => {
 });
 
 // Rotas
-app.use('/auth',            authRouter);
+app.use('/api/auth',            authRouter);
 
-app.use('/users',           usersRouter);
-app.use('/families',        familiesRouter);
-app.use('/categories',      categoriesRouter);
-app.use('/payment-methods', paymentMethodsRouter);
-app.use('/transactions',    transactionsRouter);
-app.use('/budgets',         budgetsRouter);
-app.use('/assets',          assetsRouter);
-app.use('/profile',         profileRouter);
+app.use('/api/users',           usersRouter);
+app.use('/api/families',        familiesRouter);
+app.use('/api/categories',      categoriesRouter);
+app.use('/api/payment-methods', paymentMethodsRouter);
+app.use('/api/transactions',    transactionsRouter);
+app.use('/api/budgets',         budgetsRouter);
+app.use('/api/assets',          assetsRouter);
+app.use('/api/profile',         profileRouter);
 
-app.get('/credit-card/invoice', authenticate, getInvoice);
-app.get('/summary',             authenticate, getSummary);
+app.get('/api/credit-card/invoice', authenticate, getInvoice);
+app.get('/api/summary',             authenticate, getSummary);
 
 // Na Vercel (Services) o Express é usado como um handler de requisição, não
 // como um servidor de longa duração — o import do módulo não deve abrir uma

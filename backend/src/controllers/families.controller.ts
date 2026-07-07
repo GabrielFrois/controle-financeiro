@@ -5,7 +5,7 @@ export async function listFamilies(_req: Request, res: Response) {
   try {
     const result = await query(`
       SELECT f.id, f.name,
-        json_agg(json_build_object('id', u.id, 'name', u.name, 'color', u.color, 'email', u.email) ORDER BY u.name) AS members
+        json_agg(json_build_object('id', u.id, 'name', u.name, 'color', u.color, 'username', u.username) ORDER BY u.name) AS members
       FROM families f
       JOIN family_members fm ON fm.family_id = f.id
       JOIN users u           ON u.id = fm.user_id

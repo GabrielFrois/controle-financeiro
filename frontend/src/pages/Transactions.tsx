@@ -42,15 +42,17 @@ const formatRegistrationDate = (iso: string) => {
   return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
 };
 
-const now           = new Date();
-const DEFAULT_START = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-const DEFAULT_END   = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+const now = new Date();
+const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+const DEFAULT_START = oneYearAgo.toISOString().split('T')[0];
+const DEFAULT_END = now.toISOString().split('T')[0];
 
 const makeEmptyForm = (userId: string): TransactionForm => ({
   description: '', amount: '', type: 'EXPENSE',
   category_id: '', user_id: userId, date: new Date().toISOString().split('T')[0],
   payment_method_id: '', installments: '1',
   asset_ticker: '', quantity: '', investment_type: 'OUTROS', yield_rate: '',
+  is_invoice_payment: false, paid_card_id: '', invoice_reference_month: '',
 });
 
 // ─── component ──────────────────────────────────────────────────────────────
@@ -65,33 +67,33 @@ export default function Transactions() {
   } = useInvoice(transactions, paymentMethods);
 
   // ── UI state ──────────────────────────────────────────────────────────────
-  const [tabValue, setTabValue]             = useState(0);
-  const [evolutionMode, setEvolutionMode]   = useState<'daily' | 'weekly' | 'monthly'>('monthly');
-  const [chartOffset, setChartOffset]       = useState(0);
+  const [tabValue, setTabValue] = useState(0);
+  const [evolutionMode, setEvolutionMode] = useState<'daily' | 'weekly' | 'monthly'>('monthly');
+  const [chartOffset, setChartOffset] = useState(0);
 
-  const [page, setPage]                     = useState(0);
-  const [rowsPerPage, setRowsPerPage]       = useState(10);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
   const [categoryFilter, setCategoryFilter] = useState('Todas');
-  const [typeFilter, setTypeFilter]         = useState('Todos');
-  const [startDate, setStartDate]           = useState(DEFAULT_START);
-  const [endDate, setEndDate]               = useState(DEFAULT_END);
+  const [typeFilter, setTypeFilter] = useState('Todos');
+  const [startDate, setStartDate] = useState(DEFAULT_START);
+  const [endDate, setEndDate] = useState(DEFAULT_END);
 
   // ── Form / dialog state ───────────────────────────────────────────────────
-  const [open, setOpen]                     = useState(false);
-  const [isEditing, setIsEditing]           = useState(false);
-  const [editingId, setEditingId]           = useState<string | null>(null);
-  const [editAllFuture, setEditAllFuture]   = useState(false);
-  const [paymentMode, setPaymentMode]       = useState<'DEBIT' | 'CREDIT'>('DEBIT');
-  const [form, setForm]                     = useState<TransactionForm>(makeEmptyForm(String(authUser?.id ?? '')));
+  const [open, setOpen] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editAllFuture, setEditAllFuture] = useState(false);
+  const [paymentMode, setPaymentMode] = useState<'DEBIT' | 'CREDIT'>('DEBIT');
+  const [form, setForm] = useState<TransactionForm>(makeEmptyForm(String(authUser?.id ?? '')));
 
-  const [deleteDialogOpen, setDeleteDialogOpen]       = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [transactionToDelete, setTransactionToDelete] = useState<Transaction | null>(null);
 
   // ── Derived data ──────────────────────────────────────────────────────────
   const filteredTransactions = useMemo(() => transactions.filter((t) => {
     const matchCategory = categoryFilter === 'Todas' || t.category_name === categoryFilter;
-    const matchType     = typeFilter === 'Todos'    || t.type           === typeFilter;
-    const tDate         = (t.date || '').split('T')[0];
+    const matchType = typeFilter === 'Todos' || t.type === typeFilter;
+    const tDate = (t.date || '').split('T')[0];
     return matchCategory && matchType && tDate >= startDate && tDate <= endDate;
   }), [transactions, categoryFilter, typeFilter, startDate, endDate]);
 
@@ -115,17 +117,27 @@ export default function Transactions() {
   };
 
   const handlePayInvoice = (totalPending: number) => {
-    const card     = paymentMethods.find((m) => m.id === Number(selectedCardId));
+    const card = paymentMethods.find((m) => m.id === Number(selectedCardId));
     const cardName = (card as any)?.name ?? 'Cartão';
     const [year, month] = invoiceMonth.split('-');
     const monthName = new Date(Number(year), Number(month) - 1, 15)
       .toLocaleDateString('pt-BR', { month: 'long' });
+
+    // A descrição aqui é só para leitura humana no extrato — quem realmente
+    // liga este lançamento à fatura do cartão são os campos estruturados
+    // abaixo (is_invoice_payment / paid_card_id / invoice_reference_month),
+    // não mais o texto.
+    const invoicePaymentCategory = categories.find((c) => c.name === 'Pagamento de Fatura');
 
     setIsEditing(false); setEditingId(null); setEditAllFuture(false); setPaymentMode('DEBIT');
     setForm({
       ...makeEmptyForm(String(authUser?.id ?? '')),
       description: `Pagamento Fatura ${cardName} - ${monthName}/${year}`,
       amount: totalPending.toFixed(2),
+      category_id: invoicePaymentCategory ? String(invoicePaymentCategory.id) : '',
+      is_invoice_payment: true,
+      paid_card_id: selectedCardId,
+      invoice_reference_month: invoiceMonth,
     });
     setOpen(true);
   };
@@ -135,18 +147,21 @@ export default function Transactions() {
     const saved = paymentMethods.find((m) => m.id === t.payment_method_id);
     setPaymentMode(saved?.closing_day ? 'CREDIT' : 'DEBIT');
     setForm({
-      description:       t.description.replace(/\s\(\d+\/\d+\)$/, ''),
-      amount:            String(t.amount),
-      type:              t.type,
-      category_id:       String(t.category_id),
-      user_id:           String(t.user_id),
-      date:              t.date.split('T')[0],
+      description: t.description.replace(/\s\(\d+\/\d+\)$/, ''),
+      amount: String(t.amount),
+      type: t.type,
+      category_id: String(t.category_id),
+      user_id: String(t.user_id),
+      date: t.date.split('T')[0],
       payment_method_id: String(t.payment_method_id),
-      installments:      '1',
-      asset_ticker:      t.asset_ticker ?? '',
-      quantity:          t.quantity ? String(t.quantity) : '',
-      investment_type:   t.investment_type ?? 'OUTROS',
-      yield_rate:        t.yield_rate ? String(t.yield_rate) : '',
+      installments: '1',
+      asset_ticker: t.asset_ticker ?? '',
+      quantity: t.quantity ? String(t.quantity) : '',
+      investment_type: t.investment_type ?? 'OUTROS',
+      yield_rate: t.yield_rate ? String(t.yield_rate) : '',
+      is_invoice_payment: !!t.is_invoice_payment,
+      paid_card_id: t.paid_card_id ? String(t.paid_card_id) : '',
+      invoice_reference_month: t.invoice_reference_month ?? '',
     });
     setOpen(true);
   };
@@ -166,8 +181,9 @@ export default function Transactions() {
       }
       setOpen(false);
       fetchData();
-    } catch {
-      alert('Erro ao salvar');
+    } catch (err: any) {
+      const message = err?.response?.data?.error ?? 'Erro ao salvar';
+      alert(message);
     }
   };
 
@@ -210,10 +226,10 @@ export default function Transactions() {
       {/* Tab bar */}
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)}>
-          <Tab icon={<ListAlt />}     iconPosition="start" label="Registros" />
+          <Tab icon={<ListAlt />} iconPosition="start" label="Registros" />
           <Tab icon={<ReceiptLong />} iconPosition="start" label="Faturas" />
-          <Tab icon={<Timeline />}    iconPosition="start" label="Análise de Período" />
-          <Tab icon={<History />}     iconPosition="start" label="Tendência" />
+          <Tab icon={<Timeline />} iconPosition="start" label="Análise de Período" />
+          <Tab icon={<History />} iconPosition="start" label="Tendência" />
         </Tabs>
         {tabValue === 0 && (
           <Button variant="contained" startIcon={<Add />} sx={{ borderRadius: '10px' }} onClick={handleOpenNew}>
@@ -373,87 +389,97 @@ export default function Transactions() {
 
       {/* ── ABA 2: Análise ───────────────────────────────────────────────── */}
       {tabValue === 2 && (
-        <Grid container spacing={3}>
-          <Grid size={{ xs: 12, md: 7 }}>
-            <Paper sx={{ p: 3, borderRadius: 5 }}>
-              <Typography variant="h6" fontWeight="900" mb={3} display="flex" alignItems="center" gap={1}>
-                <Payments color="primary" /> RESUMO — {activeLabel.toUpperCase()}
-              </Typography>
-              <Grid container spacing={2}>
-                {[
-                  { label: 'MÉDIA SEMANAL',    val: analyticsData.avgWeekly,    color: 'text.secondary' },
-                  { label: 'MÉDIA MENSAL',     val: analyticsData.avgMonthly,   color: 'text.secondary' },
-                  { label: 'TOTAL NO PERÍODO', val: analyticsData.totalPeriodo, color: 'error.main' },
-                ].map((item) => (
-                  <Grid size={{ xs: 12, sm: 4 }} key={item.label}>
-                    <Box sx={{ p: 2, borderRadius: 3, bgcolor: 'action.hover', textAlign: 'center' }}>
-                      <Typography variant="caption" fontWeight="bold" color="text.secondary">{item.label}</Typography>
-                      <Typography variant="h6" fontWeight="900" color={item.color}>{formatCurrency(item.val)}</Typography>
-                    </Box>
-                  </Grid>
-                ))}
-              </Grid>
-            </Paper>
-          </Grid>
+        <>
+          <TransactionFilters
+            typeFilter={typeFilter} categoryFilter={categoryFilter}
+            startDate={startDate} endDate={endDate}
+            defaultStartDate={DEFAULT_START} defaultEndDate={DEFAULT_END}
+            categories={categories}
+            onChange={handleFilterChange} onReset={handleFilterReset}
+          />
 
-          <Grid size={{ xs: 12, md: 5 }}>
-            <Paper sx={{ p: 3, borderRadius: 5, bgcolor: `${theme.palette.success.main}08`, border: '1px solid', borderColor: theme.palette.success.light }}>
-              <Typography variant="h6" fontWeight="900" mb={3} display="flex" alignItems="center" gap={1}>
-                <Savings color="success" /> ECONOMIA
-              </Typography>
-              <Stack spacing={2}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <Typography variant="body2" fontWeight="bold">NO PERÍODO:</Typography>
-                  <Typography variant="h5" fontWeight="900" color="success.main">{formatCurrency(analyticsData.savingsTotal)}</Typography>
+          <Grid container spacing={3}>
+            <Grid size={{ xs: 12, md: 7 }}>
+              <Paper sx={{ p: 3, borderRadius: 5 }}>
+                <Typography variant="h6" fontWeight="900" mb={3} display="flex" alignItems="center" gap={1}>
+                  <Payments color="primary" /> RESUMO — {activeLabel.toUpperCase()}
+                </Typography>
+                <Grid container spacing={2}>
+                  {[
+                    { label: 'MÉDIA SEMANAL', val: analyticsData.avgWeekly, color: 'text.secondary' },
+                    { label: 'MÉDIA MENSAL', val: analyticsData.avgMonthly, color: 'text.secondary' },
+                    { label: 'TOTAL NO PERÍODO', val: analyticsData.totalPeriodo, color: 'error.main' },
+                  ].map((item) => (
+                    <Grid size={{ xs: 12, sm: 4 }} key={item.label}>
+                      <Box sx={{ p: 2, borderRadius: 3, bgcolor: 'action.hover', textAlign: 'center' }}>
+                        <Typography variant="caption" fontWeight="bold" color="text.secondary">{item.label}</Typography>
+                        <Typography variant="h6" fontWeight="900" color={item.color}>{formatCurrency(item.val)}</Typography>
+                      </Box>
+                    </Grid>
+                  ))}
+                </Grid>
+              </Paper>
+            </Grid>
+
+            <Grid size={{ xs: 12, md: 5 }}>
+              <Paper sx={{ p: 3, borderRadius: 5, bgcolor: `${theme.palette.success.main}08`, border: '1px solid', borderColor: theme.palette.success.light }}>
+                <Typography variant="h6" fontWeight="900" mb={3} display="flex" alignItems="center" gap={1}>
+                  <Savings color="success" /> ECONOMIA
+                </Typography>
+                <Stack spacing={2}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography variant="body2" fontWeight="bold">NO PERÍODO:</Typography>
+                    <Typography variant="h5" fontWeight="900" color="success.main">{formatCurrency(analyticsData.savingsTotal)}</Typography>
+                  </Box>
+                  <Divider />
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography variant="body2" fontWeight="bold">PROJEÇÃO FINAL DO MÊS:</Typography>
+                    <Typography variant="h6" fontWeight="900">{formatCurrency(analyticsData.projectedSavings)}</Typography>
+                  </Box>
+                </Stack>
+              </Paper>
+            </Grid>
+
+            <Grid size={{ xs: 12, md: 4 }}>
+              <Paper sx={{ p: 3, borderRadius: 5, height: 480 }}>
+                <Typography variant="h6" fontWeight="900" mb={2}><EmojiEvents color="warning" /> MAIORES GASTOS</Typography>
+                <List>
+                  {analyticsData.top5.map((t: any, i: number) => (
+                    <ListItem key={i} disableGutters>
+                      <ListItemAvatar><Avatar sx={{ bgcolor: 'action.hover', color: 'text.primary', fontWeight: 'bold' }}>{i + 1}</Avatar></ListItemAvatar>
+                      <ListItemText primary={<Typography fontWeight="700" noWrap>{t.description}</Typography>} secondary={t.category_name} />
+                      <Typography fontWeight="900" color="error.main">{formatCurrency(t.amount)}</Typography>
+                    </ListItem>
+                  ))}
+                </List>
+              </Paper>
+            </Grid>
+
+            <Grid size={{ xs: 12, md: 8 }}>
+              <Paper sx={{ p: 3, borderRadius: 5, height: 480 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3 }}>
+                  <Typography variant="h6" fontWeight="bold">Evolução de Gastos</Typography>
+                  <ToggleButtonGroup size="small" value={evolutionMode} exclusive onChange={(_, v) => v && setEvolutionMode(v)}>
+                    <ToggleButton value="daily"><CalendarViewDay fontSize="small" sx={{ mr: 1 }} /> Dia</ToggleButton>
+                    <ToggleButton value="weekly"><CalendarViewWeek fontSize="small" sx={{ mr: 1 }} /> Sem</ToggleButton>
+                    <ToggleButton value="monthly"><CalendarMonth fontSize="small" sx={{ mr: 1 }} /> Mês</ToggleButton>
+                  </ToggleButtonGroup>
                 </Box>
-                <Divider />
-                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <Typography variant="body2" fontWeight="bold">PROJEÇÃO FINAL DO MÊS:</Typography>
-                  <Typography variant="h6" fontWeight="900">{formatCurrency(analyticsData.projectedSavings)}</Typography>
+                <Box sx={{ height: 350 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={analyticsData.lineData}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.5} />
+                      <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                      <YAxis hide />
+                      <ReTooltip formatter={(v: any) => [formatCurrency(v), 'Gasto']} />
+                      <Line type="monotone" dataKey="valor" stroke={theme.palette.error.main} strokeWidth={3} dot={{ r: 4 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
                 </Box>
-              </Stack>
-            </Paper>
+              </Paper>
+            </Grid>
           </Grid>
-
-          <Grid size={{ xs: 12, md: 4 }}>
-            <Paper sx={{ p: 3, borderRadius: 5, height: 480 }}>
-              <Typography variant="h6" fontWeight="900" mb={2}><EmojiEvents color="warning" /> MAIORES GASTOS</Typography>
-              <List>
-                {analyticsData.top5.map((t: any, i: number) => (
-                  <ListItem key={i} disableGutters>
-                    <ListItemAvatar><Avatar sx={{ bgcolor: 'action.hover', color: 'text.primary', fontWeight: 'bold' }}>{i + 1}</Avatar></ListItemAvatar>
-                    <ListItemText primary={<Typography fontWeight="700" noWrap>{t.description}</Typography>} secondary={t.category_name} />
-                    <Typography fontWeight="900" color="error.main">{formatCurrency(t.amount)}</Typography>
-                  </ListItem>
-                ))}
-              </List>
-            </Paper>
-          </Grid>
-
-          <Grid size={{ xs: 12, md: 8 }}>
-            <Paper sx={{ p: 3, borderRadius: 5, height: 480 }}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3 }}>
-                <Typography variant="h6" fontWeight="bold">Evolução de Gastos</Typography>
-                <ToggleButtonGroup size="small" value={evolutionMode} exclusive onChange={(_, v) => v && setEvolutionMode(v)}>
-                  <ToggleButton value="daily"><CalendarViewDay fontSize="small" sx={{ mr: 1 }} /> Dia</ToggleButton>
-                  <ToggleButton value="weekly"><CalendarViewWeek fontSize="small" sx={{ mr: 1 }} /> Sem</ToggleButton>
-                  <ToggleButton value="monthly"><CalendarMonth fontSize="small" sx={{ mr: 1 }} /> Mês</ToggleButton>
-                </ToggleButtonGroup>
-              </Box>
-              <Box sx={{ height: 350 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={analyticsData.lineData}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.5} />
-                    <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-                    <YAxis hide />
-                    <ReTooltip formatter={(v: any) => [formatCurrency(v), 'Gasto']} />
-                    <Line type="monotone" dataKey="valor" stroke={theme.palette.error.main} strokeWidth={3} dot={{ r: 4 }} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </Box>
-            </Paper>
-          </Grid>
-        </Grid>
+        </>
       )}
 
       {/* ── ABA 3: Tendência ─────────────────────────────────────────────── */}

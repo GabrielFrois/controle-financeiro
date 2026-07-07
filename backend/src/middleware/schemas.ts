@@ -7,14 +7,23 @@ const strongPassword = z
   .regex(/[A-Za-z]/, 'Senha deve conter ao menos uma letra.')
   .regex(/[0-9]/, 'Senha deve conter ao menos um número.');
 
+// Nome de usuário: 3-30 caracteres, letras/números/ponto/underline/hífen, sem espaços.
+const username = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(3, 'Usuário deve ter ao menos 3 caracteres.')
+  .max(30, 'Usuário deve ter no máximo 30 caracteres.')
+  .regex(/^[a-z0-9._-]+$/, 'Usuário deve conter apenas letras, números, ponto, hífen ou underline.');
+
 export const loginSchema = z.object({
-  email:    z.string().email('E-mail inválido.'),
+  username: z.string().min(1, 'Usuário é obrigatório.'),
   password: z.string().min(1, 'Senha é obrigatória.'),
 });
 
 export const createUserSchema = z.object({
   name:     z.string().min(1, 'O nome é obrigatório.'),
-  email:    z.string().email('E-mail inválido.'),
+  username,
   password: strongPassword,
   color:    z.string().default('#1976d2').optional(),
   role:     z.enum(['admin', 'member']).default('member').optional(),
@@ -22,7 +31,7 @@ export const createUserSchema = z.object({
 
 export const updateUserSchema = z.object({
   name:     z.string().min(1, 'O nome é obrigatório.'),
-  email:    z.string().email('E-mail inválido.'),
+  username,
   color:    z.string().optional(),
   active:   z.boolean().default(true).optional(),
   role:     z.enum(['admin', 'member']).default('member').optional(),
@@ -66,6 +75,12 @@ export const createTransactionSchema = z.object({
   quantity:          z.coerce.number().min(0).nullable().optional(),
   investment_type:   z.string().default('OUTROS').optional(),
   yield_rate:        z.coerce.number().nullable().optional(),
+  // Pagamento de fatura de cartão: quando presente, esta transação quita
+  // (total ou parcialmente) a fatura do cartão `paid_card_id` referente ao
+  // mês `invoice_reference_month` (formato YYYY-MM).
+  is_invoice_payment:      z.coerce.boolean().default(false).optional(),
+  paid_card_id:            z.coerce.number().int().positive().nullable().optional(),
+  invoice_reference_month: z.string().regex(/^\d{4}-\d{2}$/).nullable().optional(),
 });
 
 export const updateTransactionSchema = z.object({
@@ -80,6 +95,9 @@ export const updateTransactionSchema = z.object({
   yield_rate:        z.coerce.number().nullable().optional(),
   asset_ticker:      z.string().default('').optional(),
   quantity:          z.coerce.number().min(0).nullable().optional(),
+  is_invoice_payment:      z.coerce.boolean().default(false).optional(),
+  paid_card_id:            z.coerce.number().int().positive().nullable().optional(),
+  invoice_reference_month: z.string().regex(/^\d{4}-\d{2}$/).nullable().optional(),
 });
 
 export const updateGroupTransactionSchema = z.object({

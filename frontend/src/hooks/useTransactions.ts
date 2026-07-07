@@ -10,7 +10,6 @@ export function useTransactions() {
 
   const [loading, setLoading]               = useState(true);
   const [transactions, setTransactions]     = useState<Transaction[]>([]);
-  const [users, setUsers]                   = useState<User[]>([]);
   const [categories, setCategories]         = useState<Category[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
 
@@ -21,14 +20,12 @@ export function useTransactions() {
         ? { params: { user_ids: activeUserIds.join(',') } }
         : {};
 
-      const [transRes, userRes, catRes, payRes] = await Promise.all([
+      const [transRes, catRes, payRes] = await Promise.all([
         api.get('/transactions', params),
-        api.get('/users'),
         api.get('/categories'),
         api.get('/payment-methods'),
       ]);
       setTransactions(Array.isArray(transRes.data) ? transRes.data : []);
-      setUsers(Array.isArray(userRes.data) ? userRes.data : []);
       setCategories(Array.isArray(catRes.data) ? catRes.data : []);
       setPaymentMethods(Array.isArray(payRes.data) ? payRes.data : []);
     } catch (error) {
@@ -40,5 +37,5 @@ export function useTransactions() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  return { loading, transactions, users, categories, paymentMethods, fetchData };
+  return { loading, transactions, categories, paymentMethods, fetchData };
 }

@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext';
 export default function Login() {
   const { login }  = useAuth();
   const navigate   = useNavigate();
-  const [email,    setEmail]    = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error,    setError]    = useState('');
   const [loading,  setLoading]  = useState(false);
@@ -16,7 +16,7 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      const { data } = await api.post('/auth/login', { email, password });
+      const { data } = await api.post('/auth/login', { username, password });
       login(data.token, data.user);
       navigate('/');
     } catch (err: any) {
@@ -34,8 +34,8 @@ export default function Login() {
             Controle Financeiro
           </Typography>
           {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-          <TextField label="E-mail" type="email" fullWidth margin="normal"
-            value={email} onChange={(e) => setEmail(e.target.value)}
+          <TextField label="Usuário" type="text" fullWidth margin="normal" autoCapitalize="none" autoCorrect="off"
+            value={username} onChange={(e) => setUsername(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSubmit()} />
           <TextField label="Senha" type="password" fullWidth margin="normal"
             value={password} onChange={(e) => setPassword(e.target.value)}

@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS users (
     id              SERIAL PRIMARY KEY,
     name            VARCHAR(100) NOT NULL,
-    email           VARCHAR(150) UNIQUE,
+    username        VARCHAR(100) UNIQUE NOT NULL,
     password_hash   VARCHAR(255),
     color           VARCHAR(9)  DEFAULT '#1976d2',
     role            VARCHAR(10) DEFAULT 'member' CHECK (role IN ('admin', 'member')),
@@ -62,13 +62,22 @@ CREATE TABLE IF NOT EXISTS transactions (
     created_at           TIMESTAMP      DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Campos estruturados para pagamento de fatura de cartão de crédito.
+-- Substituem a antiga heurística de casar texto na descrição
+-- ("pagamento fatura <cartão> <mês/ano>") por referências reais.
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS is_invoice_payment BOOLEAN DEFAULT FALSE;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS paid_card_id INTEGER REFERENCES payment_methods(id) ON DELETE SET NULL;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS invoice_reference_month VARCHAR(7);
+CREATE INDEX IF NOT EXISTS idx_transactions_paid_card ON transactions(paid_card_id);
+
 CREATE TABLE IF NOT EXISTS budgets (
     id          SERIAL PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     category_id INTEGER REFERENCES categories(id) ON DELETE CASCADE,
     amount      DECIMAL(10, 2) NOT NULL,
     period      VARCHAR(10) CHECK (period IN ('MONTHLY', 'YEARLY')) NOT NULL,
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(category_id, period)
+    UNIQUE(user_id, category_id, period)
 );
 
 CREATE TABLE IF NOT EXISTS families (

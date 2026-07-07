@@ -1,7 +1,7 @@
 export interface AuthUser {
   id: number;
   name: string;
-  email: string;
+  username: string;
   role: 'admin' | 'member';
   color: string;
   active?: boolean;
@@ -10,7 +10,7 @@ export interface AuthUser {
 export interface User {
   id: number;
   name: string;
-  email: string;
+  username: string;
   color: string;
   role: 'admin' | 'member';
   active: boolean;
@@ -36,6 +36,12 @@ export interface Transaction {
   investment_type: string;
   yield_rate: number | null;
   created_at: string;
+  // Pagamento de fatura de cartão: quando is_invoice_payment é true, esta
+  // transação quita a fatura do cartão paid_card_id referente ao mês
+  // invoice_reference_month (YYYY-MM).
+  is_invoice_payment: boolean;
+  paid_card_id: number | null;
+  invoice_reference_month: string | null;
 }
 
 export interface User { id: number; name: string; color: string; active: boolean; }

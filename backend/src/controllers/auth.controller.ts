@@ -10,22 +10,22 @@ function getSecret(): string {
 }
 
 // Hash "morto" usado apenas para igualar o tempo de resposta ao de uma senha incorreta quando o usuário não existe, está bloqueado ou inativo
-// evita enumeração de e-mails por análise de latência (timing attack).
+// evita enumeração de usuários por análise de latência (timing attack).
 const DUMMY_HASH = '$2b$12$RM6VtZdBstYymjk444OeI.9SPvrKAAhUZ/JdeaZNtwM.DPX0SBe6C';
 
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCK_DURATION_MS = 15 * 60 * 1000; // 15 minutos
 
-const GENERIC_ERROR = { error: 'E-mail ou senha incorretos.' };
+const GENERIC_ERROR = { error: 'Usuário ou senha incorretos.' };
 
 export async function login(req: Request, res: Response) {
-  const { email, password } = req.body;
+  const { username, password } = req.body;
   const ip = req.ip ?? req.socket.remoteAddress ?? 'unknown';
 
   try {
     const result = await query(
-      'SELECT id, name, email, password_hash, role, color, active, failed_attempts, locked_at, token_version FROM users WHERE email = $1',
-      [email]
+      'SELECT id, name, username, password_hash, role, color, active, failed_attempts, locked_at, token_version FROM users WHERE username = $1',
+      [String(username ?? '').trim().toLowerCase()]
     );
     const user = result.rows[0];
 
@@ -34,10 +34,10 @@ export async function login(req: Request, res: Response) {
       user?.locked_at && Date.now() - new Date(user.locked_at).getTime() < LOCK_DURATION_MS;
 
     if (!user || !user.active || isLocked) {
-      // Mesmo custo de bcrypt.compare de um caso de senha incorreta, para não vazar (por timing) se o e-mail existe, está inativo ou está bloqueado.
+      // Mesmo custo de bcrypt.compare de um caso de senha incorreta, para não vazar (por timing) se o usuário existe, está inativo ou está bloqueado.
       await bcrypt.compare(password ?? '', DUMMY_HASH);
-      const reason = !user ? 'email não encontrado' : !user.active ? 'usuário inativo' : 'conta bloqueada';
-      console.warn(`[AUDIT] Login falhou — ${reason} | email=${email} | ip=${ip}`);
+      const reason = !user ? 'usuário não encontrado' : !user.active ? 'usuário inativo' : 'conta bloqueada';
+      console.warn(`[AUDIT] Login falhou — ${reason} | username=${username} | ip=${ip}`);
       return res.status(401).json(GENERIC_ERROR);
     }
 
@@ -67,7 +67,7 @@ export async function login(req: Request, res: Response) {
     console.info(`[AUDIT] Login bem-sucedido | userId=${user.id} | ip=${ip}`);
     res.json({
       token,
-      user: { id: user.id, name: user.name, email: user.email, role: user.role, color: user.color },
+      user: { id: user.id, name: user.name, username: user.username, role: user.role, color: user.color },
     });
   } catch {
     res.status(500).json({ error: 'Erro interno no login.' });
@@ -77,7 +77,7 @@ export async function login(req: Request, res: Response) {
 export async function getMe(req: Request, res: Response) {
   try {
     const result = await query(
-      'SELECT id, name, email, role, color, active FROM users WHERE id = $1',
+      'SELECT id, name, username, role, color, active FROM users WHERE id = $1',
       [req.user!.userId]
     );
     if (result.rowCount === 0) return res.status(404).json({ error: 'Usuário não encontrado.' });

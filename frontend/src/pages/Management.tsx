@@ -5,6 +5,7 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   InputAdornment, Divider, Tabs, Tab, Chip, Tooltip,
   Alert, Checkbox, FormControlLabel, Card, CardContent,
+  useTheme, useMediaQuery,
 } from '@mui/material';
 import { Grid } from '@mui/material';
 import {
@@ -12,7 +13,7 @@ import {
   CreditCard, AccountBalanceWallet, Warning, Settings,
   AdminPanelSettings, Block, LockReset, Group, GroupAdd,
   ManageAccounts, Save, Visibility, VisibilityOff,
-  EmailOutlined, LockOutlined, BadgeOutlined,
+  LockOutlined, BadgeOutlined,
 } from '@mui/icons-material';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -22,10 +23,10 @@ import type { AuthUser, Category as CategoryType, PaymentMethod } from '../types
 
 interface UserItem extends AuthUser {
   active: boolean;
-  email: string;
+  username: string;
 }
 
-interface FamilyMember { id: number; name: string; color: string; email?: string; }
+interface FamilyMember { id: number; name: string; color: string; username?: string; }
 interface Family       { id: number; name: string; members: FamilyMember[]; }
 
 type EditSource = 'users' | 'categories' | 'payment-methods';
@@ -35,7 +36,7 @@ interface EditingItem {
   id: number;
   name: string;
   active: boolean;
-  email?: string;
+  username?: string;
   color?: string;
   role?: 'admin' | 'member';
   newPassword?: string;
@@ -50,6 +51,8 @@ interface EditingItem {
 export default function Management() {
   const { user: me, isAdmin, login, token } = useAuth();
   const [tab, setTab] = useState(0);
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
   // Dados
   const [users, setUsers]           = useState<UserItem[]>([]);
@@ -67,7 +70,7 @@ export default function Management() {
   const [profileLoading, setProfileLoading]   = useState(false);
 
   // Form novo usuário
-  const emptyUser = { name: '', email: '', password: '', color: '#1976d2', role: 'member' };
+  const emptyUser = { name: '', username: '', password: '', color: '#1976d2', role: 'member' };
   const [newUser, setNewUser]     = useState(emptyUser);
   const [userError, setUserError] = useState('');
 
@@ -167,8 +170,8 @@ export default function Management() {
   // ── Usuários ─────────────────────────────────────────────────────────────────
   const handleAddUser = async () => {
     setUserError('');
-    if (!newUser.name.trim() || !newUser.email.trim() || !newUser.password.trim()) {
-      setUserError('Nome, e-mail e senha são obrigatórios.');
+    if (!newUser.name.trim() || !newUser.username.trim() || !newUser.password.trim()) {
+      setUserError('Nome, usuário e senha são obrigatórios.');
       return;
     }
     try {
@@ -184,7 +187,7 @@ export default function Management() {
   const handleToggleBlock = async (u: UserItem) => {
     if (u.id === me?.id) return;
     try {
-      await api.put(`/users/${u.id}`, { name: u.name, email: u.email, color: u.color, role: u.role, active: !u.active });
+      await api.put(`/users/${u.id}`, { name: u.name, username: u.username, color: u.color, role: u.role, active: !u.active });
       fetchData();
     } catch (err) { console.error(err); }
   };
@@ -216,14 +219,14 @@ export default function Management() {
     setEditError('');
     const { source, id, ...payload } = editingItem;
 
-    if (source === 'users' && (!payload.name?.trim() || !payload.email?.trim())) {
-      setEditError('Nome e e-mail são obrigatórios.');
+    if (source === 'users' && (!payload.name?.trim() || !payload.username?.trim())) {
+      setEditError('Nome e usuário são obrigatórios.');
       return;
     }
 
     const clean: Record<string, unknown> = { name: payload.name, active: payload.active };
     if (source === 'users') {
-      clean.email = payload.email; clean.color = payload.color; clean.role = payload.role;
+      clean.username = payload.username; clean.color = payload.color; clean.role = payload.role;
       if (payload.newPassword?.trim()) clean.password = payload.newPassword;
     }
     if (source === 'categories')      { clean.color = payload.color; clean.type = payload.type; }
@@ -321,15 +324,21 @@ export default function Management() {
 
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
-    <Box sx={{ p: 4, maxWidth: '1200px', margin: '0 auto' }}>
-      <Box sx={{ mb: 4, display: 'flex', alignItems: 'center' }}>
-        <Typography variant="h4" fontWeight={900} sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Settings fontSize="large" color="primary" /> Gestão de Configurações
+    <Box sx={{ p: { xs: 2, sm: 3, md: 4 }, maxWidth: '1200px', margin: '0 auto' }}>
+      <Box sx={{ mb: { xs: 2, md: 4 }, display: 'flex', alignItems: 'center' }}>
+        <Typography variant="h4" fontWeight={900} sx={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: { xs: '1.5rem', sm: '2.125rem' } }}>
+          <Settings fontSize={isMobile ? 'medium' : 'large'} color="primary" /> Gestão de Configurações
         </Typography>
       </Box>
 
-      <Paper sx={{ mb: 4, borderRadius: 4 }}>
-        <Tabs value={tab} onChange={(_, v) => setTab(v)} centered variant="fullWidth">
+      <Paper sx={{ mb: { xs: 2, md: 4 }, borderRadius: 4 }}>
+        <Tabs
+          value={tab} onChange={(_, v) => setTab(v)}
+          centered={!isMobile}
+          variant={isMobile ? 'scrollable' : 'fullWidth'}
+          scrollButtons={isMobile ? 'auto' : undefined}
+          allowScrollButtonsMobile
+        >
           {tabs.map((t, i) => <Tab key={i} icon={t.icon} label={t.label} />)}
         </Tabs>
       </Paper>
@@ -371,9 +380,9 @@ export default function Management() {
 
                 <Stack spacing={1.5} alignItems="flex-start" sx={{ px: 1 }}>
                   <Stack direction="row" spacing={1} alignItems="center">
-                    <EmailOutlined fontSize="small" color="action" />
+                    <BadgeOutlined fontSize="small" color="action" />
                     <Typography variant="body2" color="text.secondary" sx={{ wordBreak: 'break-all' }}>
-                      {me?.email}
+                      {me?.username}
                     </Typography>
                   </Stack>
                   <Stack direction="row" spacing={1} alignItems="center">
@@ -501,17 +510,17 @@ export default function Management() {
             <TextField fullWidth label="Nome (Ex: Nubank, Carteira)" size="small"
               value={newMethod.name} onChange={(e) => setNewMethod({ ...newMethod, name: e.target.value })} />
             <Grid container spacing={1}>
-              <Grid size={{ xs: 4 }}>
+              <Grid size={{ xs: 6, sm: 4 }}>
                 <TextField fullWidth type="number" label="Dia Fech." size="small"
                   value={newMethod.closing_day} onChange={(e) => setNewMethod({ ...newMethod, closing_day: e.target.value })}
                   helperText="Para Cartões" />
               </Grid>
-              <Grid size={{ xs: 4 }}>
+              <Grid size={{ xs: 6, sm: 4 }}>
                 <TextField fullWidth type="number" label="Dia Venc." size="small"
                   value={newMethod.due_day} onChange={(e) => setNewMethod({ ...newMethod, due_day: e.target.value })}
                   helperText="Para Cartões" />
               </Grid>
-              <Grid size={{ xs: 4 }}>
+              <Grid size={{ xs: 12, sm: 4 }}>
                 <TextField fullWidth type="number" label="Limite" size="small"
                   value={newMethod.card_limit} onChange={(e) => setNewMethod({ ...newMethod, card_limit: e.target.value })}
                   helperText="Opcional" />
@@ -626,8 +635,8 @@ export default function Management() {
                   value={newUser.name} onChange={(e) => setNewUser({ ...newUser, name: e.target.value })} />
               </Grid>
               <Grid size={{ xs: 12, sm: 5 }}>
-                <TextField fullWidth label="E-mail" size="small" type="email"
-                  value={newUser.email} onChange={(e) => setNewUser({ ...newUser, email: e.target.value })} />
+                <TextField fullWidth label="Usuário" size="small" autoCapitalize="none"
+                  value={newUser.username} onChange={(e) => setNewUser({ ...newUser, username: e.target.value })} />
               </Grid>
               <Grid size={{ xs: 12, sm: 2 }}>
                 <TextField select fullWidth label="Papel" size="small"
@@ -684,7 +693,7 @@ export default function Management() {
                         {!u.active && <Chip label="Bloqueado" size="small" color="error" />}
                       </Stack>
                     }
-                    secondary={u.email}
+                    secondary={u.username}
                   />
                 </ListItem>
               );
@@ -728,7 +737,7 @@ export default function Management() {
                         </Avatar>
                         <Box>
                           <Typography variant="body2" fontWeight={600}>{u.name}</Typography>
-                          <Typography variant="caption" color="text.secondary">{u.email}</Typography>
+                          <Typography variant="caption" color="text.secondary">{u.username}</Typography>
                         </Box>
                       </Stack>
                     }
@@ -773,8 +782,8 @@ export default function Management() {
               onChange={(e) => setEditingItem(editingItem ? { ...editingItem, name: e.target.value } : null)} />
             {editingItem?.source === 'users' && (
               <>
-                <TextField fullWidth label="E-mail" type="email" value={editingItem?.email ?? ''}
-                  onChange={(e) => setEditingItem({ ...editingItem, email: e.target.value })} />
+                <TextField fullWidth label="Usuário" value={editingItem?.username ?? ''}
+                  onChange={(e) => setEditingItem({ ...editingItem, username: e.target.value })} />
                 <TextField select fullWidth label="Papel" value={editingItem?.role ?? 'member'}
                   onChange={(e) => setEditingItem({ ...editingItem, role: e.target.value as 'admin' | 'member' })}>
                   <MenuItem value="member">Membro</MenuItem>

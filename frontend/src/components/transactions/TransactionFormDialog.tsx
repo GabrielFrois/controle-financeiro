@@ -2,7 +2,7 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   Button, Stack, TextField, Grid, FormControl, InputLabel,
   Select, MenuItem, Divider, Chip, Box, ToggleButtonGroup,
-  ToggleButton, FormControlLabel, Switch,
+  ToggleButton, FormControlLabel, Switch, Alert,
 } from '@mui/material';
 import { AccountBalanceWallet } from '@mui/icons-material';
 import CreditCardIcon from '@mui/icons-material/CreditCard';
@@ -15,6 +15,12 @@ export interface TransactionForm {
   payment_method_id: string; installments: string;
   asset_ticker: string; quantity: string;
   investment_type: string; yield_rate: string;
+  // Preenchidos apenas quando este lançamento é um pagamento de fatura de
+  // cartão (ver handlePayInvoice em Transactions.tsx). Ligam a transação à
+  // fatura que ela quita de forma estruturada, sem depender de texto.
+  is_invoice_payment?: boolean;
+  paid_card_id?: string;
+  invoice_reference_month?: string;
 }
 
 interface Props {
@@ -56,6 +62,13 @@ export default function TransactionFormDialog({
   const set = (field: keyof TransactionForm) => (e: { target: { value: string } }) =>
     onFormChange({ ...form, [field]: e.target.value });
 
+  const invoicePaymentCard = useMemo(
+    () => (form.is_invoice_payment && form.paid_card_id
+      ? paymentMethods.find((m) => m.id === Number(form.paid_card_id))
+      : null),
+    [form.is_invoice_payment, form.paid_card_id, paymentMethods]
+  );
+
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
       <DialogTitle sx={{ fontWeight: 900 }}>
@@ -64,6 +77,14 @@ export default function TransactionFormDialog({
       <form onSubmit={onSubmit}>
         <DialogContent>
           <Stack spacing={2.5}>
+            {invoicePaymentCard && (
+              <Alert severity="info">
+                Este lançamento vai quitar a fatura de <strong>{invoicePaymentCard.name}</strong>
+                {form.invoice_reference_month ? ` referente a ${form.invoice_reference_month}` : ''}.
+                Escolha abaixo a conta/carteira de onde o dinheiro vai sair.
+              </Alert>
+            )}
+
             {isEditing && editingHasGroup && (
               <FormControlLabel
                 control={<Switch checked={editAllFuture} onChange={(e) => onEditAllFutureChange(e.target.checked)} />}
@@ -109,7 +130,8 @@ export default function TransactionFormDialog({
                 <ToggleButton value="DEBIT" sx={{ px: 3 }}>
                   <AccountBalanceWallet sx={{ mr: 1, fontSize: 20 }} /> À VISTA / DÉBITO
                 </ToggleButton>
-                <ToggleButton value="CREDIT" sx={{ px: 3 }}>
+                {/* Pagamento de fatura só pode sair de conta/carteira, nunca de outro cartão de crédito */}
+                <ToggleButton value="CREDIT" sx={{ px: 3 }} disabled={!!invoicePaymentCard}>
                   <CreditCardIcon sx={{ mr: 1, fontSize: 20 }} /> CRÉDITO PARCELADO
                 </ToggleButton>
               </ToggleButtonGroup>

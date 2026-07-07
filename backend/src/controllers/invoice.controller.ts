@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { query } from '../database/index.js';
+import { getCardCommittedBalance } from '../utils/creditCard.js';
 
 export async function getInvoice(req: Request, res: Response) {
   const { payment_method_id, reference_month, reference_year } = req.query;
@@ -75,16 +76,24 @@ export async function getInvoice(req: Request, res: Response) {
 
     const transactions  = txRes.rows;
     const totalInvoice  = transactions.reduce((sum, t) => sum + parseFloat(t.amount), 0);
-    const availableLimit = cardLimit > 0 ? cardLimit - totalInvoice : null;
+
+    // Saldo comprometido do cartão inteiro (parcelas passadas e futuras,
+    // menos pagamentos de fatura já feitos) — não apenas a fatura deste
+    // ciclo. É isso que reflete corretamente o limite disponível de um
+    // cartão real, já que comprar parcelado bloqueia o valor total no ato
+    // da compra, não só a parcela do mês.
+    const committedBalance = await getCardCommittedBalance(Number(payment_method_id));
+    const availableLimit   = cardLimit > 0 ? cardLimit - committedBalance : null;
 
     res.json({
       card: { id: card.id, name: card.name, closing_day: closingDay, due_day: dueDay, card_limit: cardLimit },
       cycle: { start: cycleStartStr, end: cycleEndStr, due_date: dueDate.toISOString().split('T')[0] },
       summary: {
-        total_invoice:   totalInvoice,
-        card_limit:      cardLimit,
-        available_limit: availableLimit,
-        limit_used_pct:  cardLimit > 0 ? (totalInvoice / cardLimit) * 100 : null,
+        total_invoice:      totalInvoice,
+        card_limit:         cardLimit,
+        committed_balance:  committedBalance,
+        available_limit:    availableLimit,
+        limit_used_pct:     cardLimit > 0 ? (committedBalance / cardLimit) * 100 : null,
       },
       transactions,
     });

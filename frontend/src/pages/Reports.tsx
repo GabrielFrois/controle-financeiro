@@ -3,7 +3,7 @@ import { useFamily } from '../context/FamilyContext';
 import {
   Box, Typography, Button, Paper, Stack, Grid, TextField,
   MenuItem, Table, TableBody, TableCell, TableContainer,
-  TableHead, TableRow, CircularProgress, useTheme, Avatar,
+  TableHead, TableRow, CircularProgress, useTheme, useMediaQuery, Avatar,
   Card, CardContent, Divider, Chip,
 } from '@mui/material';
 import {
@@ -20,6 +20,7 @@ import api from '../services/api';
 
 export default function Reports() {
   const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { activeUserIds, activeLabel } = useFamily();
   const [loading, setLoading]       = useState(true);
   const [transactions, setTransactions] = useState<any[]>([]);
@@ -132,12 +133,12 @@ export default function Reports() {
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', mt: 10 }}><CircularProgress /></Box>;
 
   return (
-    <Box sx={{ pt: 4, px: 4, pb: 4, maxWidth: '1400px', margin: '0 auto' }}>
-      <Box className="no-print" sx={{ mb: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Typography variant="h4" fontWeight="900" sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Assessment fontSize="large" color="primary" /> Relatórios e Indicadores
+    <Box sx={{ pt: { xs: 2, md: 4 }, px: { xs: 1.5, sm: 2, md: 4 }, pb: { xs: 2, md: 4 }, maxWidth: '1400px', margin: '0 auto' }}>
+      <Box className="no-print" sx={{ mb: 4, display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, alignItems: { xs: 'flex-start', sm: 'center' }, justifyContent: 'space-between', gap: 2 }}>
+        <Typography variant="h4" fontWeight="900" sx={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: { xs: '1.5rem', sm: '2.125rem' } }}>
+          <Assessment fontSize={isMobile ? 'medium' : 'large'} color="primary" /> Relatórios e Indicadores
         </Typography>
-        <Stack direction="row" spacing={1} alignItems="center">
+        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
           <Chip label={`Visão: ${activeLabel}`} color="primary" variant="outlined" size="small" sx={{ fontWeight: 700 }} />
           <Button variant="outlined" startIcon={<PrintIcon />} onClick={() => window.print()} sx={{ borderRadius: '12px', fontWeight: 'bold', textTransform: 'none' }}>Imprimir</Button>
           <Button variant="contained" startIcon={<DownloadIcon />} onClick={handleExportCSV} sx={{ borderRadius: '12px', fontWeight: 'bold', textTransform: 'none' }}>Exportar CSV</Button>
@@ -145,28 +146,28 @@ export default function Reports() {
       </Box>
 
       {/* FILTROS — sem seleção de usuário */}
-      <Paper className="no-print" sx={{ p: 3, mb: 3, borderRadius: 5, boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
+      <Paper className="no-print" sx={{ p: { xs: 2, sm: 3 }, mb: 3, borderRadius: 5, boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
         <Grid container spacing={2}>
-          <Grid size={{ xs: 12, md: 3 }}>
+          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
             <TextField select fullWidth label="Tipo" size="small" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
               <MenuItem value="Todos">Todos</MenuItem>
               <MenuItem value="INCOME">Receitas</MenuItem>
               <MenuItem value="EXPENSE">Despesas</MenuItem>
             </TextField>
           </Grid>
-          <Grid size={{ xs: 12, md: 3 }}>
+          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
             <TextField select fullWidth label="Categoria" size="small" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
               <MenuItem value="Todas">Todas</MenuItem>
               {categories.map((c) => <MenuItem key={c.id} value={c.name}>{c.name}</MenuItem>)}
             </TextField>
           </Grid>
-          <Grid size={{ xs: 12, md: 2 }}>
+          <Grid size={{ xs: 6, sm: 6, md: 2 }}>
             <TextField fullWidth type="date" label="Início" size="small" InputLabelProps={{ shrink: true }} value={startDate} onChange={(e) => setStartDate(e.target.value)} />
           </Grid>
-          <Grid size={{ xs: 12, md: 2 }}>
+          <Grid size={{ xs: 6, sm: 6, md: 2 }}>
             <TextField fullWidth type="date" label="Fim" size="small" InputLabelProps={{ shrink: true }} value={endDate} onChange={(e) => setEndDate(e.target.value)} />
           </Grid>
-          <Grid size={{ xs: 12, md: 2 }}>
+          <Grid size={{ xs: 12, sm: 12, md: 2 }}>
             <Button fullWidth startIcon={<Clear />} onClick={() => {
               const p = getPresets();
               setStartDate(p.start); setEndDate(p.end);
@@ -188,39 +189,68 @@ export default function Reports() {
       <Box className="no-print">
         <Grid container spacing={3} justifyContent="center">
           <Grid size={{ xs: 12, md: 5 }}>
-            <Paper sx={{ p: 3.5, borderRadius: 4 }}>
+            <Paper sx={{ p: { xs: 2, sm: 3.5 }, borderRadius: 4 }}>
               <Typography variant="h6" fontWeight="900" mb={2.5}>RESUMO POR CATEGORIA</Typography>
-              <TableContainer><Table size="small">
-                <TableHead><TableRow>
-                  <TableCell sx={{ fontWeight: 900, py: 1.8 }}>CATEGORIA</TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 900, py: 1.8 }}>TOTAL</TableCell>
-                </TableRow></TableHead>
-                <TableBody>{stats.categories.map((cat: any) => (
-                  <TableRow key={cat.name}>
-                    <TableCell sx={{ fontWeight: 600, py: 1.4 }}>{cat.name}</TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 700, py: 1.4, color: cat.type === 'INCOME' ? 'success.main' : 'error.main' }}>{formatCurrency(cat.total)}</TableCell>
-                  </TableRow>
-                ))}</TableBody>
-              </Table></TableContainer>
+              {isMobile ? (
+                <Stack divider={<Divider />}>
+                  {stats.categories.map((cat: any) => (
+                    <Stack key={cat.name} direction="row" justifyContent="space-between" alignItems="center" sx={{ py: 1.2 }}>
+                      <Typography variant="body2" fontWeight={600}>{cat.name}</Typography>
+                      <Typography variant="body2" fontWeight={700} color={cat.type === 'INCOME' ? 'success.main' : 'error.main'}>
+                        {formatCurrency(cat.total)}
+                      </Typography>
+                    </Stack>
+                  ))}
+                </Stack>
+              ) : (
+                <TableContainer><Table size="small">
+                  <TableHead><TableRow>
+                    <TableCell sx={{ fontWeight: 900, py: 1.8 }}>CATEGORIA</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 900, py: 1.8 }}>TOTAL</TableCell>
+                  </TableRow></TableHead>
+                  <TableBody>{stats.categories.map((cat: any) => (
+                    <TableRow key={cat.name}>
+                      <TableCell sx={{ fontWeight: 600, py: 1.4 }}>{cat.name}</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, py: 1.4, color: cat.type === 'INCOME' ? 'success.main' : 'error.main' }}>{formatCurrency(cat.total)}</TableCell>
+                    </TableRow>
+                  ))}</TableBody>
+                </Table></TableContainer>
+              )}
             </Paper>
           </Grid>
           <Grid size={{ xs: 12, md: 7 }}>
-            <Paper sx={{ p: 3.5, borderRadius: 4 }}>
+            <Paper sx={{ p: { xs: 2, sm: 3.5 }, borderRadius: 4 }}>
               <Typography variant="h6" fontWeight="900" mb={2.5}>MAIORES MOVIMENTAÇÕES</Typography>
-              <TableContainer><Table size="small">
-                <TableHead><TableRow>
-                  <TableCell sx={{ fontWeight: 900, py: 1.8 }}>DESCRIÇÃO</TableCell>
-                  <TableCell sx={{ fontWeight: 900, py: 1.8 }}>CATEGORIA</TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 900, py: 1.8 }}>TOTAL</TableCell>
-                </TableRow></TableHead>
-                <TableBody>{stats.movements.map((m: any, idx: number) => (
-                  <TableRow key={idx} hover>
-                    <TableCell sx={{ fontWeight: 600, py: 1.4 }}>{m.description}</TableCell>
-                    <TableCell sx={{ color: 'text.secondary', py: 1.4 }}>{m.category}</TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 700, py: 1.4, color: m.type === 'INCOME' ? 'success.main' : 'error.main' }}>{formatCurrency(m.total)}</TableCell>
-                  </TableRow>
-                ))}</TableBody>
-              </Table></TableContainer>
+              {isMobile ? (
+                <Stack divider={<Divider />}>
+                  {stats.movements.map((m: any, idx: number) => (
+                    <Box key={idx} sx={{ py: 1.2 }}>
+                      <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+                        <Typography variant="body2" fontWeight={600} sx={{ pr: 1 }}>{m.description}</Typography>
+                        <Typography variant="body2" fontWeight={700} color={m.type === 'INCOME' ? 'success.main' : 'error.main'} sx={{ whiteSpace: 'nowrap' }}>
+                          {formatCurrency(m.total)}
+                        </Typography>
+                      </Stack>
+                      <Typography variant="caption" color="text.secondary">{m.category}</Typography>
+                    </Box>
+                  ))}
+                </Stack>
+              ) : (
+                <TableContainer><Table size="small">
+                  <TableHead><TableRow>
+                    <TableCell sx={{ fontWeight: 900, py: 1.8 }}>DESCRIÇÃO</TableCell>
+                    <TableCell sx={{ fontWeight: 900, py: 1.8 }}>CATEGORIA</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 900, py: 1.8 }}>TOTAL</TableCell>
+                  </TableRow></TableHead>
+                  <TableBody>{stats.movements.map((m: any, idx: number) => (
+                    <TableRow key={idx} hover>
+                      <TableCell sx={{ fontWeight: 600, py: 1.4 }}>{m.description}</TableCell>
+                      <TableCell sx={{ color: 'text.secondary', py: 1.4 }}>{m.category}</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, py: 1.4, color: m.type === 'INCOME' ? 'success.main' : 'error.main' }}>{formatCurrency(m.total)}</TableCell>
+                    </TableRow>
+                  ))}</TableBody>
+                </Table></TableContainer>
+              )}
             </Paper>
           </Grid>
         </Grid>

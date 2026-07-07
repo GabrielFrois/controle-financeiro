@@ -20,7 +20,7 @@ export async function updateMyProfile(req: Request, res: Response) {
       const result = await query(
         `UPDATE users SET name = $1, password_hash = $2, token_version = token_version + 1
          WHERE id = $3
-         RETURNING id, name, email, color, role, token_version`,
+         RETURNING id, name, username, color, role, token_version`,
         [name, password_hash, userId]
       );
       const updated = result.rows[0];
@@ -38,7 +38,7 @@ export async function updateMyProfile(req: Request, res: Response) {
     }
 
     const result = await query(
-      `UPDATE users SET name = $1 WHERE id = $2 RETURNING id, name, email, color, role`,
+      `UPDATE users SET name = $1 WHERE id = $2 RETURNING id, name, username, color, role`,
       [name, userId]
     );
     console.info(`[AUDIT] Perfil atualizado | userId=${userId}`);

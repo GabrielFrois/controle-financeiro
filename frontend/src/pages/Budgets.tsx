@@ -1,23 +1,34 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useFamily } from '../context/FamilyContext';
+import { useAuth } from '../context/AuthContext';
 import { 
   Box, Typography, LinearProgress, Paper, Grid, CircularProgress, 
   useTheme, Button, Dialog, DialogTitle, DialogContent, 
   DialogActions, TextField, MenuItem, IconButton, Stack,
-  Divider
+  Divider, Chip
 } from '@mui/material';
 import { Add, Delete, Edit, Warning, CalendarMonth, QueryStats, HelpOutline, TrackChanges } from '@mui/icons-material';
 import api from '../services/api';
 
 export default function Budgets() {
   const theme = useTheme();
-  const { activeUserIds } = useFamily();
+  const { families, activeUserIds, activeLabel } = useFamily();
+  const { user, isAdmin } = useAuth();
   const [loading, setLoading] = useState(true);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [budgets, setBudgets] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
-  
+
+  // Sempre a família inteira do usuário logado (independe do toggle "Só eu / Família"
+  // do menu lateral) — o GASTO de qualquer meta visível sempre soma a casa toda.
+  const myHouseholdIds = useMemo(() => {
+    const ids = new Set<number>();
+    if (user) ids.add(user.id);
+    families.forEach((f: any) => f.members.forEach((m: any) => ids.add(m.id)));
+    return Array.from(ids);
+  }, [families, user]);
+
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState({ category_id: '', amount: '', period: 'MONTHLY' });
 
@@ -27,12 +38,11 @@ export default function Budgets() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const userParams = activeUserIds.length > 0
-        ? { params: { user_ids: activeUserIds.join(',') } }
-        : {};
+      // QUAIS metas aparecem segue o toggle "Só eu / Família" (activeUserIds) —
+      // em "Família" você vê as suas metas e as dos seus familiares também.
       const [transRes, budgetRes, catRes] = await Promise.all([
-        api.get('/transactions', userParams),
-        api.get('/budgets'),
+        api.get('/transactions', { params: { user_ids: myHouseholdIds.join(',') } }),
+        api.get('/budgets', { params: { user_ids: activeUserIds.join(',') } }),
         api.get('/categories')
       ]);
       setTransactions(transRes.data);
@@ -43,7 +53,7 @@ export default function Budgets() {
     } finally {
       setLoading(false);
     }
-  }, [activeUserIds]);
+  }, [myHouseholdIds, activeUserIds]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -125,6 +135,8 @@ export default function Budgets() {
     if (b.percent > 90) progressColor = theme.palette.error.main;
     else if (b.percent > 70) progressColor = theme.palette.warning.main;
 
+    const canManage = isAdmin || b.user_id === user?.id;
+
     return (
       <Grid size={{ xs: 12, sm: 6, md: 3 }} key={b.id}>
         <Paper sx={{ 
@@ -150,16 +162,27 @@ export default function Budgets() {
               <Typography variant="subtitle2" color="text.secondary" fontWeight="900" sx={{ textTransform: 'uppercase' }}>
                 {b.category_name || 'Categoria'} 
               </Typography>
-              <Box sx={{ display: 'flex', gap: 0.5 }}>
-                <IconButton size="small" onClick={() => handleOpen(b)} color="primary">
-                  <Edit sx={{ fontSize: 18 }} />
-                </IconButton>
-                <IconButton size="small" onClick={() => handleOpenDelete(b)} color="error">
-                  <Delete sx={{ fontSize: 18 }} />
-                </IconButton>
-              </Box>
+              {canManage && (
+                <Box sx={{ display: 'flex', gap: 0.5 }}>
+                  <IconButton size="small" onClick={() => handleOpen(b)} color="primary">
+                    <Edit sx={{ fontSize: 18 }} />
+                  </IconButton>
+                  <IconButton size="small" onClick={() => handleOpenDelete(b)} color="error">
+                    <Delete sx={{ fontSize: 18 }} />
+                  </IconButton>
+                </Box>
+              )}
             </Stack>
-            
+
+            <Chip
+              size="small"
+              label={b.user_name}
+              sx={{
+                mb: 1, height: 20, fontSize: '0.7rem', fontWeight: 700,
+                bgcolor: `${b.user_color}22`, color: b.user_color,
+              }}
+            />
+
             <Box sx={{ my: 1.5 }}>
               <Typography variant="h4" fontWeight="900">
                 {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(b.spent)}
@@ -194,8 +217,8 @@ export default function Budgets() {
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', mt: 10 }}><CircularProgress /></Box>;
 
   return (
-    <Box sx={{ pt: 4, px: 4, pb: 4, maxWidth: '1400px', margin: '0 auto' }}>
-      <Box sx={{ mb: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+    <Box sx={{ pt: { xs: 2, md: 4 }, px: { xs: 1.5, sm: 2, md: 4 }, pb: { xs: 2, md: 4 }, maxWidth: '1400px', margin: '0 auto' }}>
+      <Box sx={{ mb: 1, display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center', justifyContent: 'space-between' }}>
         <Typography variant="h4" fontWeight="900" sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             <TrackChanges fontSize="large" color="primary" /> Metas Financeiras
         </Typography>
@@ -208,6 +231,9 @@ export default function Budgets() {
           Nova Meta
         </Button>
       </Box>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+        Visão: {activeLabel} — o gasto de cada meta sempre soma você e sua família.
+      </Typography>
 
       <Typography variant="h6" fontWeight="900" mb={3} display="flex" alignItems="center" gap={1}>
         <CalendarMonth color="primary" /> MENSAIS

@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { randomUUID } from 'crypto';
 import { query } from '../database/index.js';
+import { checkCardLimit } from '../utils/creditCard.js';
 
 // helpers
 
@@ -104,6 +105,7 @@ export async function createTransaction(req: Request, res: Response) {
     description, amount, type, category_id,
     date, payment_method_id, installments, asset_ticker,
     quantity, investment_type, yield_rate,
+    is_invoice_payment, paid_card_id, invoice_reference_month,
   } = req.body;
 
   // Membros comuns só podem lançar transações em nome de si mesmos
@@ -114,7 +116,22 @@ export async function createTransaction(req: Request, res: Response) {
 
   try {
     const methodRes = await query('SELECT * FROM payment_methods WHERE id = $1', [payment_method_id]);
-    const method = methodRes.rows[0] ?? { closing_day: null, due_day: null };
+    const method = methodRes.rows[0] ?? { closing_day: null, due_day: null, card_limit: null };
+
+    // ── Checagem de limite ──────────────────────────────────────────────────
+    // Como um cartão real: o valor TOTAL da compra é comprometido do limite
+    // no ato da compra, mesmo que seja parcelada — não apenas a parcela do
+    // mês corrente. Pagamentos de fatura (is_invoice_payment) não passam por
+    // aqui, pois são debitados de uma conta/carteira, não do próprio cartão.
+    const isCreditCardPurchase = type === 'EXPENSE' && !is_invoice_payment && method.closing_day != null;
+    if (isCreditCardPurchase) {
+      const limitCheck = await checkCardLimit(method.card_limit, payment_method_id, Number(amount));
+      if (!limitCheck.ok) {
+        return res.status(400).json({
+          error: `Limite insuficiente no cartão "${method.name}". Disponível: R$ ${limitCheck.availableLimit!.toFixed(2)}, valor da compra: R$ ${Number(amount).toFixed(2)}.`,
+        });
+      }
+    }
 
     const assetId = await upsertAsset(asset_ticker, investment_type);
 
@@ -127,8 +144,9 @@ export async function createTransaction(req: Request, res: Response) {
       INSERT INTO transactions (
         description, amount, type, user_id, category_id,
         date, payment_method_id, asset_id, quantity, installment_group_id,
-        investment_type, yield_rate
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        investment_type, yield_rate,
+        is_invoice_payment, paid_card_id, invoice_reference_month
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
       RETURNING *
     `;
 
@@ -150,6 +168,9 @@ export async function createTransaction(req: Request, res: Response) {
         groupId,
         investment_type ?? 'OUTROS',
         yield_rate ?? null,
+        !!is_invoice_payment,
+        paid_card_id ?? null,
+        invoice_reference_month ?? null,
       ]);
       created.push(result.rows[0]);
     }
@@ -168,6 +189,7 @@ export async function updateTransaction(req: Request, res: Response) {
     description, amount, type, category_id,
     date, payment_method_id, investment_type, yield_rate,
     asset_ticker, quantity,
+    is_invoice_payment, paid_card_id, invoice_reference_month,
   } = req.body;
 
   const isAdmin = req.user!.role === 'admin';
@@ -175,12 +197,32 @@ export async function updateTransaction(req: Request, res: Response) {
   const user_id = isAdmin ? req.body.user_id : req.user!.userId;
 
   try {
-    const ownerClause = isAdmin ? '' : 'AND user_id = $12';
+    // ── Checagem de limite ──────────────────────────────────────────────────
+    // Exclui a própria transação (valor antigo) do cálculo do saldo
+    // comprometido antes de validar o novo valor.
+    const methodRes = await query('SELECT * FROM payment_methods WHERE id = $1', [payment_method_id]);
+    const method = methodRes.rows[0];
+    const isCreditCardPurchase = type === 'EXPENSE' && !is_invoice_payment && method?.closing_day != null;
+    if (isCreditCardPurchase) {
+      const limitCheck = await checkCardLimit(method.card_limit, payment_method_id, Number(amount), [Number(id)]);
+      if (!limitCheck.ok) {
+        return res.status(400).json({
+          error: `Limite insuficiente no cartão "${method.name}". Disponível: R$ ${limitCheck.availableLimit!.toFixed(2)}, valor informado: R$ ${Number(amount).toFixed(2)}.`,
+        });
+      }
+    }
+
+    // Nota: o clause de ownership referencia o parâmetro que vem DEPOIS do
+    // id ($16), não o próprio id ($15) — do contrário a comparação seria
+    // user_id = id_da_transação, que nunca corresponde ao usuário logado.
+    const ownerClause = isAdmin ? '' : 'AND user_id = $16';
     const params: any[] = [
       description, amount, type, category_id, user_id,
       date, payment_method_id, investment_type ?? 'OUTROS',
       yield_rate ?? null, await upsertAsset(asset_ticker, investment_type),
-      quantity ?? null, id,
+      quantity ?? null,
+      !!is_invoice_payment, paid_card_id ?? null, invoice_reference_month ?? null,
+      id,
     ];
     if (!isAdmin) params.push(req.user!.userId);
 
@@ -188,8 +230,9 @@ export async function updateTransaction(req: Request, res: Response) {
       `UPDATE transactions
        SET description=$1, amount=$2, type=$3, category_id=$4,
            user_id=$5, date=$6, payment_method_id=$7,
-           investment_type=$8, yield_rate=$9, asset_id=$10, quantity=$11
-       WHERE id=$12 ${ownerClause}
+           investment_type=$8, yield_rate=$9, asset_id=$10, quantity=$11,
+           is_invoice_payment=$12, paid_card_id=$13, invoice_reference_month=$14
+       WHERE id=$15 ${ownerClause}
        RETURNING *`,
       params
     );
@@ -220,6 +263,31 @@ export async function updateTransactionGroup(req: Request, res: Response) {
   const user_id = isAdmin ? req.body.user_id : req.user!.userId;
 
   try {
+    // ── Checagem de limite ──────────────────────────────────────────────────
+    // `amount` aqui é o valor de CADA parcela futura. O compromisso total
+    // que essa edição representa é amount × (nº de parcelas futuras do
+    // grupo), e essas parcelas futuras devem ser excluídas do saldo
+    // comprometido atual do cartão antes de validar o novo valor.
+    if (type === 'EXPENSE' && payment_method_id) {
+      const methodRes = await query('SELECT * FROM payment_methods WHERE id = $1', [payment_method_id]);
+      const method = methodRes.rows[0];
+      if (method?.closing_day != null) {
+        const futureRes = await query(
+          `SELECT id FROM transactions WHERE installment_group_id = $1 AND date >= $2`,
+          [groupId, referer_date]
+        );
+        const futureIds: number[] = futureRes.rows.map((r: any) => r.id);
+        const newTotalForFuture = Number(amount) * Math.max(1, futureIds.length);
+
+        const limitCheck = await checkCardLimit(method.card_limit, payment_method_id, newTotalForFuture, futureIds);
+        if (!limitCheck.ok) {
+          return res.status(400).json({
+            error: `Limite insuficiente no cartão "${method.name}". Disponível: R$ ${limitCheck.availableLimit!.toFixed(2)}, valor total das parcelas futuras: R$ ${newTotalForFuture.toFixed(2)}.`,
+          });
+        }
+      }
+    }
+
     const ownerClause = isAdmin ? '' : 'AND user_id = $11';
     const params: any[] = [
       description, amount, type, category_id, user_id,

@@ -18,7 +18,8 @@ export async function createCategory(req: Request, res: Response) {
       [name, type, color]
     );
     res.status(201).json(result.rows[0]);
-  } catch {
+  } catch (err: any) {
+    if (err.code === '23505') return res.status(409).json({ error: `Já existe uma categoria chamada "${name}".` });
     res.status(500).json({ error: 'Erro ao criar categoria' });
   }
 }
@@ -33,7 +34,8 @@ export async function updateCategory(req: Request, res: Response) {
     );
     if (result.rowCount === 0) return res.status(404).json({ error: 'Categoria não encontrada.' });
     res.json(result.rows[0]);
-  } catch {
+  } catch (err: any) {
+    if (err.code === '23505') return res.status(409).json({ error: `Já existe uma categoria chamada "${name}".` });
     res.status(500).json({ error: 'Erro ao atualizar categoria' });
   }
 }

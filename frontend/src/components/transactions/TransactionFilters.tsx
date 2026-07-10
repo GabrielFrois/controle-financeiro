@@ -21,7 +21,7 @@ export default function TransactionFilters({
   onChange, onReset,
 }: Props) {
   return (
-    <Paper sx={{ p: 3, mb: 3, borderRadius: 5, boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
+    <Paper sx={{ p: { xs: 2, sm: 3 }, mb: 3, borderRadius: 5, boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, md: 3 }}>
           <TextField select fullWidth label="Tipo" size="small" value={typeFilter} onChange={(e) => onChange('typeFilter', e.target.value)}>

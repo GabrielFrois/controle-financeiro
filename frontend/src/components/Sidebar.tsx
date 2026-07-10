@@ -45,7 +45,7 @@ export default function Sidebar({ toggleTheme, mode, mobileOpen, onClose }: Side
     <>
       <Toolbar sx={{ display: 'flex', justifyContent: 'space-between' }}>
         <Typography variant="h6" noWrap fontWeight="bold" color="primary">
-          Financias
+          ZeloFy
         </Typography>
         <IconButton onClick={toggleTheme}>
           {mode === 'dark' ? <Brightness7 /> : <Brightness4 />}

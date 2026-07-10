@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useFamily } from '../context/FamilyContext';
 import { 
   Grid, Paper, Typography, Card, CardContent, Box, 
-  CircularProgress, useTheme, Avatar, Divider, List, 
+  CircularProgress, useTheme, useMediaQuery, Avatar, Divider, List, 
   ListItem, ListItemText, ListItemAvatar,
   ToggleButton, ToggleButtonGroup
 } from '@mui/material';
@@ -16,6 +16,7 @@ import api from '../services/api';
 
 export default function Dashboard() {
   const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { activeUserIds } = useFamily();
   const [loading, setLoading] = useState(true);
   
@@ -137,21 +138,25 @@ export default function Dashboard() {
   );
 
   return (
-    <Box sx={{ pt: 7, px: 2, pb: 2, maxWidth: '1200px', margin: '0 auto' }}>
+    <Box sx={{ pt: { xs: 2, sm: 7 }, px: { xs: 1.5, sm: 2 }, pb: 2, maxWidth: '1200px', margin: '0 auto' }}>
       
       {/* Filtro Centralizado */}
-      <Box sx={{ display: 'flex', justifyContent: 'center', mb: 5 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'center', mb: { xs: 3, sm: 5 }, px: { xs: 0.5, sm: 0 } }}>
         <ToggleButtonGroup
           value={viewMode}
           exclusive
           onChange={(_, next) => next && setViewMode(next)}
           size="small"
+          fullWidth={isMobile}
           sx={{ 
             bgcolor: 'background.paper', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
             border: `1px solid ${theme.palette.primary.main}`,
             overflow: 'hidden',
+            maxWidth: '100%',
             '& .MuiToggleButton-root': { 
-              border: 'none', borderRadius: 0, px: 3, fontWeight: 'bold', 
+              border: 'none', borderRadius: 0, px: { xs: 1, sm: 3 }, fontWeight: 'bold', 
+              fontSize: { xs: '0.7rem', sm: '0.8125rem' },
+              whiteSpace: 'nowrap',
               color: theme.palette.primary.main,
               transition: 'all 0.2s ease-in-out',
               '&:hover': {
@@ -168,24 +173,24 @@ export default function Dashboard() {
             }
           }}
         >
-          <ToggleButton value="month">MÊS ATUAL</ToggleButton>
-          <ToggleButton value="year">ANO ATUAL</ToggleButton>
-          <ToggleButton value="all">HISTÓRICO GERAL</ToggleButton>
+          <ToggleButton value="month">{isMobile ? 'MÊS' : 'MÊS ATUAL'}</ToggleButton>
+          <ToggleButton value="year">{isMobile ? 'ANO' : 'ANO ATUAL'}</ToggleButton>
+          <ToggleButton value="all">{isMobile ? 'GERAL' : 'HISTÓRICO GERAL'}</ToggleButton>
         </ToggleButtonGroup>
       </Box>
 
       {/* Cards KPI */}
       <Grid container spacing={2} sx={{ mb: 5 }} justifyContent="center">
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+        <Grid size={{ xs: 6, sm: 6, md: 3 }}>
           <KPICard title="Saldo" value={formatCurrency(totalBalance)} icon={<AccountBalanceWallet />} color={theme.palette.primary.main} />
         </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+        <Grid size={{ xs: 6, sm: 6, md: 3 }}>
           <KPICard title="Receitas" value={formatCurrency(summary.income)} icon={<TrendingUp />} color={theme.palette.success.main} />
         </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+        <Grid size={{ xs: 6, sm: 6, md: 3 }}>
           <KPICard title="Despesas" value={formatCurrency(summary.expense)} icon={<TrendingDown />} color={theme.palette.error.main} />
         </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+        <Grid size={{ xs: 6, sm: 6, md: 3 }}>
           <KPICard title="Patrimônio" value={formatCurrency(patrimonio)} icon={<Savings />} color="#9c27b0" />
         </Grid>
       </Grid>
@@ -195,7 +200,7 @@ export default function Dashboard() {
         
         {/* Distribuição Geral */}
         <Grid size={{ xs: 12, md: 4 }}>
-          <Paper sx={{ p: 3, borderRadius: 5, height: 500, display: 'flex', flexDirection: 'column', textAlign: 'center' }}>
+          <Paper sx={{ p: { xs: 2, sm: 3 }, borderRadius: 5, height: { xs: 360, sm: 500 }, display: 'flex', flexDirection: 'column', textAlign: 'center' }}>
             <Typography variant="h6" fontWeight="900" mb={1} color="text.secondary">DISTRIBUIÇÃO GERAL</Typography>
             <Box sx={{ flexGrow: 1, position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
               <Box sx={{ position: 'absolute', textAlign: 'center', pointerEvents: 'none', px: 2 }}>
@@ -204,7 +209,7 @@ export default function Dashboard() {
               </Box>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={[{ name: 'Entradas', value: summary.income }, { name: 'Saídas', value: summary.expense }]} innerRadius={85} outerRadius={115} dataKey="value" stroke="none">
+                  <Pie data={[{ name: 'Entradas', value: summary.income }, { name: 'Saídas', value: summary.expense }]} innerRadius={isMobile ? 60 : 85} outerRadius={isMobile ? 82 : 115} dataKey="value" stroke="none">
                     <Cell fill={theme.palette.success.main} /><Cell fill={theme.palette.error.main} />
                   </Pie>
                   <Tooltip formatter={(value: any) => formatCurrency(Number(value))} />
@@ -226,7 +231,7 @@ export default function Dashboard() {
 
         {/* Gastos por Categoria */}
         <Grid size={{ xs: 12, md: 4 }}>
-          <Paper sx={{ p: 3, borderRadius: 5, height: 500, display: 'flex', flexDirection: 'column', textAlign: 'center' }}>
+          <Paper sx={{ p: { xs: 2, sm: 3 }, borderRadius: 5, height: { xs: 360, sm: 500 }, display: 'flex', flexDirection: 'column', textAlign: 'center' }}>
             <Typography variant="h6" fontWeight="900" mb={1} color="text.secondary">GASTOS POR CATEGORIA</Typography>
             <Box sx={{ flexGrow: 1, position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
                <Box sx={{ position: 'absolute', textAlign: 'center', pointerEvents: 'none', px: 2 }}>
@@ -236,7 +241,7 @@ export default function Dashboard() {
               {categoryData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={categoryData} innerRadius={85} outerRadius={115} dataKey="value" stroke="none">
+                    <Pie data={categoryData} innerRadius={isMobile ? 60 : 85} outerRadius={isMobile ? 82 : 115} dataKey="value" stroke="none">
                       {categoryData.map((_, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
                     </Pie>
                     <Tooltip formatter={(value: any) => formatCurrency(Number(value))} />
@@ -257,7 +262,7 @@ export default function Dashboard() {
 
         {/* Lançamentos Recentes */}
         <Grid size={{ xs: 12, md: 4 }}>
-          <Paper sx={{ p: 3, borderRadius: 5, height: 500, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <Paper sx={{ p: { xs: 2, sm: 3 }, borderRadius: 5, height: { xs: 380, sm: 500 }, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <Typography variant="h6" fontWeight="900" mb={2} color="text.secondary" textAlign="center">LANÇAMENTOS RECENTES</Typography>
             <Divider />
             <List sx={{ mt: 1, p: 0 }}>
@@ -307,10 +312,10 @@ export default function Dashboard() {
 function KPICard({ title, value, icon, color }: any) {
   return (
     <Card sx={{ borderRadius: 5, boxShadow: '0 4px 20px rgba(0,0,0,0.03)', border: '1px solid', borderColor: 'divider' }}>
-      <CardContent sx={{ p: 2, textAlign: 'center' }}>
-        <Avatar sx={{ bgcolor: `${color}12`, color, mx: 'auto', mb: 1, width: 44, height: 44, borderRadius: '14px' }}>{icon}</Avatar>
-        <Typography variant="body2" color="text.secondary" fontWeight="900" sx={{ textTransform: 'uppercase' }}>{title}</Typography>
-        <Typography variant="h5" fontWeight="900" sx={{ mt: 0.5 }}>{value}</Typography>
+      <CardContent sx={{ p: { xs: 1.5, sm: 2 }, textAlign: 'center' }}>
+        <Avatar sx={{ bgcolor: `${color}12`, color, mx: 'auto', mb: 1, width: { xs: 36, sm: 44 }, height: { xs: 36, sm: 44 }, borderRadius: '14px' }}>{icon}</Avatar>
+        <Typography variant="body2" color="text.secondary" fontWeight="900" sx={{ textTransform: 'uppercase', fontSize: { xs: '0.65rem', sm: '0.875rem' } }}>{title}</Typography>
+        <Typography fontWeight="900" sx={{ mt: 0.5, fontSize: { xs: '1.05rem', sm: '1.5rem' }, lineHeight: 1.3 }}>{value}</Typography>
       </CardContent>
     </Card>
   );

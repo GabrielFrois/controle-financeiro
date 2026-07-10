@@ -13,24 +13,14 @@ export async function getInvoice(req: Request, res: Response) {
 
   try {
     // ── Ownership check ────────────────────────────────────────────────────────
-    // Verifica se o payment_method foi usado pelo usuário autenticado (ou família).
-    // Admin pode consultar qualquer cartão.
-    const isAdmin = req.user!.role === 'admin';
-
-    const methodRes = await query('SELECT * FROM payment_methods WHERE id = $1', [payment_method_id]);
-    if (methodRes.rowCount === 0) return res.status(404).json({ error: 'Cartão não encontrado.' });
-
-    if (!isAdmin) {
-      // Garante que o usuário tem ao menos uma transação com este cartão
-      const ownerCheck = await query(
-        `SELECT 1 FROM transactions
-         WHERE payment_method_id = $1 AND user_id = $2
-         LIMIT 1`,
-        [payment_method_id, req.user!.userId]
-      );
-      if (ownerCheck.rowCount === 0) {
-        return res.status(403).json({ error: 'Acesso não autorizado a este cartão.' });
-      }
+    // Cartões são privados por usuário agora: só o dono pode consultar a
+    // fatura do próprio cartão — sem exceção nem para admin.
+    const methodRes = await query(
+      'SELECT * FROM payment_methods WHERE id = $1 AND user_id = $2',
+      [payment_method_id, req.user!.userId]
+    );
+    if (methodRes.rowCount === 0) {
+      return res.status(404).json({ error: 'Cartão não encontrado ou não pertence a você.' });
     }
 
     const card = methodRes.rows[0];
@@ -53,9 +43,11 @@ export async function getInvoice(req: Request, res: Response) {
     const cycleStartStr = cycleStart.toISOString().split('T')[0];
     const cycleEndStr   = cycleEnd.toISOString().split('T')[0];
 
-    // Membro vê apenas suas próprias transações na fatura; admin vê todas
-    const userFilter = isAdmin ? '' : `AND t.user_id = ${req.user!.userId}`;
-
+    // Como o cartão já é privado (só o dono chega até aqui), a fatura mostra
+    // TODAS as compras feitas nele no ciclo — mesmo que, no lançamento, a
+    // despesa tenha sido atribuída a outro membro da família (ex: dono do
+    // cartão comprou algo em nome de um filho/cônjuge). O que importa para a
+    // fatura é o cartão, não quem "ficou" com o gasto.
     const txRes = await query(
       `SELECT t.*,
               COALESCE(u.name,  'Inativo') AS user_name,
@@ -69,7 +61,6 @@ export async function getInvoice(req: Request, res: Response) {
          AND t.date >= $2
          AND t.date <= $3
          AND t.type = 'EXPENSE'
-         ${userFilter}
        ORDER BY t.date DESC, t.id DESC`,
       [payment_method_id, cycleStartStr, cycleEndStr]
     );

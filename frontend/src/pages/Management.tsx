@@ -77,6 +77,8 @@ export default function Management() {
   // Form nova categoria / método
   const [newCat, setNewCat]       = useState({ name: '', type: 'EXPENSE', color: '#9e9e9e' });
   const [newMethod, setNewMethod] = useState({ name: '', closing_day: '', due_day: '', card_limit: '' });
+  const [catFormError, setCatFormError]       = useState('');
+  const [methodFormError, setMethodFormError] = useState('');
 
   // Edição item genérico
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -98,18 +100,31 @@ export default function Management() {
   const [catSearch, setCatSearch] = useState('');
 
   // ── Fetch ───────────────────────────────────────────────────────────────────
-  const fetchData = useCallback(async () => {
+  // Separado de fetchUsers: /users exige admin (403 pra membro comum). Se
+  // estivesse tudo num Promise.all só, um 403 aqui derrubava categorias e
+  // métodos de pagamento também — mesmo eles não tendo nada a ver com users.
+  const fetchCatalog = useCallback(async () => {
     try {
-      const [uRes, cRes, mRes] = await Promise.all([
-        api.get<UserItem[]>('/users'),
+      const [cRes, mRes] = await Promise.all([
         api.get<CategoryType[]>('/categories'),
         api.get<PaymentMethod[]>('/payment-methods'),
       ]);
-      setUsers(uRes.data);
       setCategories(cRes.data);
       setMethods(mRes.data);
     } catch (err) { console.error(err); }
   }, []);
+
+  const fetchUsers = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      const { data } = await api.get<UserItem[]>('/users');
+      setUsers(data);
+    } catch (err) { console.error(err); }
+  }, [isAdmin]);
+
+  const fetchData = useCallback(async () => {
+    await Promise.all([fetchCatalog(), fetchUsers()]);
+  }, [fetchCatalog, fetchUsers]);
 
   const fetchFamilies = useCallback(async () => {
     if (!isAdmin) return;
@@ -194,17 +209,36 @@ export default function Management() {
 
   // ── Categorias / Métodos ──────────────────────────────────────────────────────
   const handleAddCategory = async () => {
+    setCatFormError('');
     if (!newCat.name.trim()) return;
-    await api.post('/categories', newCat);
-    setNewCat({ ...newCat, name: '' });
-    fetchData();
+    try {
+      await api.post('/categories', newCat);
+      setNewCat({ ...newCat, name: '' });
+      fetchCatalog();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      setCatFormError(msg ?? 'Erro ao criar categoria.');
+    }
   };
 
   const handleAddMethod = async () => {
+    setMethodFormError('');
     if (!newMethod.name.trim()) return;
-    await api.post('/payment-methods', newMethod);
-    setNewMethod({ name: '', closing_day: '', due_day: '', card_limit: '' });
-    fetchData();
+    try {
+      // closing_day/due_day/card_limit em branco devem ir como "não informado"
+      // (não como string vazia — o backend rejeita '' como número inválido).
+      await api.post('/payment-methods', {
+        name: newMethod.name,
+        closing_day: newMethod.closing_day === '' ? null : newMethod.closing_day,
+        due_day:     newMethod.due_day     === '' ? null : newMethod.due_day,
+        card_limit:  newMethod.card_limit  === '' ? null : newMethod.card_limit,
+      });
+      setNewMethod({ name: '', closing_day: '', due_day: '', card_limit: '' });
+      fetchCatalog();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      setMethodFormError(msg ?? 'Erro ao criar método de pagamento.');
+    }
   };
 
   // ── Edição genérica ───────────────────────────────────────────────────────────
@@ -466,6 +500,7 @@ export default function Management() {
       {tab === 1 && (
         <Paper sx={{ p: 3, borderRadius: 5 }}>
           <Stack spacing={2} mb={3}>
+            {catFormError && <Alert severity="error" onClose={() => setCatFormError('')}>{catFormError}</Alert>}
             <Stack direction="row" spacing={1}>
               <TextField fullWidth label="Nova Categoria" size="small"
                 value={newCat.name} onChange={(e) => setNewCat({ ...newCat, name: e.target.value })} />
@@ -507,6 +542,7 @@ export default function Management() {
         <Paper sx={{ p: 3, borderRadius: 5 }}>
           <Box sx={{ mb: 4, display: 'flex', flexDirection: 'column', gap: 2, p: 2, bgcolor: 'background.default', borderRadius: 3 }}>
             <Typography variant="subtitle2" fontWeight="bold" color="primary">NOVO MÉTODO / CARTÃO</Typography>
+            {methodFormError && <Alert severity="error" onClose={() => setMethodFormError('')}>{methodFormError}</Alert>}
             <TextField fullWidth label="Nome (Ex: Nubank, Carteira)" size="small"
               value={newMethod.name} onChange={(e) => setNewMethod({ ...newMethod, name: e.target.value })} />
             <Grid container spacing={1}>

@@ -86,8 +86,9 @@ export default function TransactionTable({
 
   // ── Layout em tabela para tablets/desktop ──────────────────────────────────
   return (
-    <TableContainer component={Paper} sx={{ borderRadius: 5, overflowX: 'auto' }}>
-      <Table sx={{ minWidth: 650 }}>
+    <Paper sx={{ borderRadius: 5, overflow: 'hidden' }}>
+      <TableContainer sx={{ overflowX: 'auto' }}>
+        <Table sx={{ minWidth: 650 }}>
         <TableHead sx={{ bgcolor: 'action.hover' }}>
           <TableRow>
             <TableCell sx={{ fontWeight: 900 }}>DATA</TableCell>
@@ -125,7 +126,8 @@ export default function TransactionTable({
             </TableRow>
           ))}
         </TableBody>
-      </Table>
+        </Table>
+      </TableContainer>
       <TablePagination
         component="div"
         count={transactions.length}
@@ -134,6 +136,6 @@ export default function TransactionTable({
         onPageChange={(_, p) => onPageChange(p)}
         onRowsPerPageChange={(e) => onRowsPerPageChange(parseInt(e.target.value, 10))}
       />
-    </TableContainer>
+    </Paper>
   );
 }

@@ -36,7 +36,7 @@ function AppLayout({ toggleTheme, mode }: { toggleTheme: () => void; mode: 'ligh
               <MenuIcon />
             </IconButton>
             <Typography variant="h6" fontWeight="bold" color="primary" noWrap>
-              Financias
+              ZeloFy
             </Typography>
           </Toolbar>
         </AppBar>

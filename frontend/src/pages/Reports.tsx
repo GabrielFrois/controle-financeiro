@@ -139,7 +139,6 @@ export default function Reports() {
           <Assessment fontSize={isMobile ? 'medium' : 'large'} color="primary" /> Relatórios e Indicadores
         </Typography>
         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-          <Chip label={`Visão: ${activeLabel}`} color="primary" variant="outlined" size="small" sx={{ fontWeight: 700 }} />
           <Button variant="outlined" startIcon={<PrintIcon />} onClick={() => window.print()} sx={{ borderRadius: '12px', fontWeight: 'bold', textTransform: 'none' }}>Imprimir</Button>
           <Button variant="contained" startIcon={<DownloadIcon />} onClick={handleExportCSV} sx={{ borderRadius: '12px', fontWeight: 'bold', textTransform: 'none' }}>Exportar CSV</Button>
         </Stack>
@@ -179,10 +178,10 @@ export default function Reports() {
 
       {/* KPI CARDS */}
       <Grid container spacing={3} sx={{ mb: 4 }} justifyContent="center" className="no-print">
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}><KPICard title="Entradas"        value={formatCurrency(stats.income)}   icon={<TrendingUp />}         color={theme.palette.success.main} /></Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}><KPICard title="Saídas"          value={formatCurrency(stats.expense)}  icon={<TrendingDown />}        color={theme.palette.error.main} /></Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}><KPICard title="Saldo do Período" value={formatCurrency(stats.balance)} icon={<AccountBalanceWallet />} color={theme.palette.primary.main} /></Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}><KPICard title="Lançamentos"     value={stats.count}                    icon={<ReceiptLong />}         color="#607d8b" /></Grid>
+        <Grid size={{ xs: 6, sm: 6, md: 3 }}><KPICard title="Entradas"        value={formatCurrency(stats.income)}   icon={<TrendingUp />}         color={theme.palette.success.main} /></Grid>
+        <Grid size={{ xs: 6, sm: 6, md: 3 }}><KPICard title="Saídas"          value={formatCurrency(stats.expense)}  icon={<TrendingDown />}        color={theme.palette.error.main} /></Grid>
+        <Grid size={{ xs: 6, sm: 6, md: 3 }}><KPICard title="Saldo do Período" value={formatCurrency(stats.balance)} icon={<AccountBalanceWallet />} color={theme.palette.primary.main} /></Grid>
+        <Grid size={{ xs: 6, sm: 6, md: 3 }}><KPICard title="Lançamentos"     value={stats.count}                    icon={<ReceiptLong />}         color="#607d8b" /></Grid>
       </Grid>
 
       {/* TABELAS */}
@@ -364,12 +363,12 @@ export default function Reports() {
 function KPICard({ title, value, icon, color }: any) {
   return (
     <Card sx={{ borderRadius: 4, boxShadow: '0 4px 12px rgba(0,0,0,0.03)', border: '1px solid', borderColor: 'divider', height: '100%' }}>
-      <CardContent sx={{ p: 2.5 }}>
-        <Stack direction="row" spacing={2} alignItems="center">
-          <Avatar sx={{ bgcolor: `${color}15`, color, width: 48, height: 48, borderRadius: 3 }}>{icon}</Avatar>
-          <Box>
-            <Typography variant="caption" color="text.secondary" fontWeight="800" sx={{ textTransform: 'uppercase', letterSpacing: 0.5 }}>{title}</Typography>
-            <Typography variant="h5" fontWeight="900" sx={{ color: 'text.primary' }}>{value}</Typography>
+      <CardContent sx={{ p: { xs: 1.25, sm: 2.5 } }}>
+        <Stack direction="row" spacing={{ xs: 1, sm: 2 }} alignItems="center">
+          <Avatar sx={{ bgcolor: `${color}15`, color, width: { xs: 32, sm: 48 }, height: { xs: 32, sm: 48 }, borderRadius: 3, flexShrink: 0 }}>{icon}</Avatar>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="caption" color="text.secondary" fontWeight="800" sx={{ textTransform: 'uppercase', letterSpacing: 0.5, fontSize: { xs: '0.6rem', sm: '0.75rem' } }}>{title}</Typography>
+            <Typography fontWeight="900" sx={{ color: 'text.primary', fontSize: { xs: '0.95rem', sm: '1.5rem' }, lineHeight: 1.3 }}>{value}</Typography>
           </Box>
         </Stack>
       </CardContent>

@@ -90,7 +90,10 @@ const categories = [
   { name: "Outras Despesas", type: "EXPENSE", color: "#263238" }
 ];
 
-const paymentMethods = ["Dinheiro", "Pix", "Crédito", "Débito", "Transferência", "Saldo Corretora", "Outros"];
+// Métodos padrão, compartilhados por todos os usuários (user_id NULL).
+// "Crédito" não faz mais parte dessa lista: cartão de crédito agora é
+// privado por usuário e é criado individualmente na tela de Gestão.
+const paymentMethods = ["Dinheiro", "Pix", "Débito", "Transferência", "Saldo Corretora"];
 
 async function init() {
   const client = await pool.connect();
@@ -111,9 +114,13 @@ async function init() {
       );
     }
 
-    console.log(">>> Inserindo métodos de pagamento base...");
+    console.log(">>> Inserindo métodos de pagamento base (padrão, compartilhados)...");
     for (const method of paymentMethods) {
-      await client.query('INSERT INTO payment_methods (name) VALUES ($1) ON CONFLICT (name) DO NOTHING', [method]);
+      await client.query(
+        `INSERT INTO payment_methods (name, user_id) VALUES ($1, NULL)
+         ON CONFLICT (name) WHERE user_id IS NULL DO NOTHING`,
+        [method]
+      );
     }
 
     await client.query('COMMIT');

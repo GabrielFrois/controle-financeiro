@@ -115,8 +115,31 @@ export async function createTransaction(req: Request, res: Response) {
   const user_id = isAdmin ? req.body.user_id : req.user!.userId;
 
   try {
-    const methodRes = await query('SELECT * FROM payment_methods WHERE id = $1', [payment_method_id]);
-    const method = methodRes.rows[0] ?? { closing_day: null, due_day: null, card_limit: null };
+    // ── Checagem de posse ────────────────────────────────────────────────────
+    // Métodos padrão (user_id NULL) são compartilhados: qualquer usuário pode
+    // usá-los. Cartões de crédito são privados: só o dono pode lançar uma
+    // transação usando o próprio cartão — mesmo admin não pode usar o cartão
+    // de outro usuário ao lançar em nome dele.
+    const methodRes = await query(
+      'SELECT * FROM payment_methods WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)',
+      [payment_method_id, req.user!.userId]
+    );
+    if (methodRes.rowCount === 0) {
+      return res.status(403).json({ error: 'Método de pagamento não encontrado ou não pertence a você.' });
+    }
+    const method = methodRes.rows[0];
+
+    if (is_invoice_payment && paid_card_id) {
+      // Pagamento de fatura sempre se refere a um cartão real, que é sempre
+      // privado — aqui não faz sentido aceitar user_id IS NULL.
+      const cardOwnCheck = await query(
+        'SELECT 1 FROM payment_methods WHERE id = $1 AND user_id = $2',
+        [paid_card_id, req.user!.userId]
+      );
+      if (cardOwnCheck.rowCount === 0) {
+        return res.status(403).json({ error: 'O cartão desta fatura não pertence a você.' });
+      }
+    }
 
     // ── Checagem de limite ──────────────────────────────────────────────────
     // Como um cartão real: o valor TOTAL da compra é comprometido do limite
@@ -197,11 +220,31 @@ export async function updateTransaction(req: Request, res: Response) {
   const user_id = isAdmin ? req.body.user_id : req.user!.userId;
 
   try {
+    // ── Checagem de posse ────────────────────────────────────────────────────
+    // Métodos padrão (user_id NULL) são compartilhados; cartões são privados.
+    const methodRes = await query(
+      'SELECT * FROM payment_methods WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)',
+      [payment_method_id, req.user!.userId]
+    );
+    if (methodRes.rowCount === 0) {
+      return res.status(403).json({ error: 'Método de pagamento não encontrado ou não pertence a você.' });
+    }
+    const method = methodRes.rows[0];
+
+    if (is_invoice_payment && paid_card_id) {
+      // Pagamento de fatura sempre se refere a um cartão real (sempre privado).
+      const cardOwnCheck = await query(
+        'SELECT 1 FROM payment_methods WHERE id = $1 AND user_id = $2',
+        [paid_card_id, req.user!.userId]
+      );
+      if (cardOwnCheck.rowCount === 0) {
+        return res.status(403).json({ error: 'O cartão desta fatura não pertence a você.' });
+      }
+    }
+
     // ── Checagem de limite ──────────────────────────────────────────────────
     // Exclui a própria transação (valor antigo) do cálculo do saldo
     // comprometido antes de validar o novo valor.
-    const methodRes = await query('SELECT * FROM payment_methods WHERE id = $1', [payment_method_id]);
-    const method = methodRes.rows[0];
     const isCreditCardPurchase = type === 'EXPENSE' && !is_invoice_payment && method?.closing_day != null;
     if (isCreditCardPurchase) {
       const limitCheck = await checkCardLimit(method.card_limit, payment_method_id, Number(amount), [Number(id)]);
@@ -263,15 +306,22 @@ export async function updateTransactionGroup(req: Request, res: Response) {
   const user_id = isAdmin ? req.body.user_id : req.user!.userId;
 
   try {
-    // ── Checagem de limite ──────────────────────────────────────────────────
+    // ── Checagem de posse + limite ───────────────────────────────────────────
     // `amount` aqui é o valor de CADA parcela futura. O compromisso total
     // que essa edição representa é amount × (nº de parcelas futuras do
     // grupo), e essas parcelas futuras devem ser excluídas do saldo
     // comprometido atual do cartão antes de validar o novo valor.
     if (type === 'EXPENSE' && payment_method_id) {
-      const methodRes = await query('SELECT * FROM payment_methods WHERE id = $1', [payment_method_id]);
+      // Métodos padrão (user_id NULL) são compartilhados; cartões são privados.
+      const methodRes = await query(
+        'SELECT * FROM payment_methods WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)',
+        [payment_method_id, req.user!.userId]
+      );
+      if (methodRes.rowCount === 0) {
+        return res.status(403).json({ error: 'Método de pagamento não encontrado ou não pertence a você.' });
+      }
       const method = methodRes.rows[0];
-      if (method?.closing_day != null) {
+      if (method.closing_day != null) {
         const futureRes = await query(
           `SELECT id FROM transactions WHERE installment_group_id = $1 AND date >= $2`,
           [groupId, referer_date]

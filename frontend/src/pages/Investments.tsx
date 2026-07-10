@@ -113,9 +113,10 @@ export default function Investments() {
 
       {/* Header */}
       <Box sx={{
+        borderBottom: 1, borderColor: 'divider', mb: 2, px: { xs: 2, sm: 0 },
         display: 'flex', flexDirection: { xs: 'column', sm: 'row' },
-        justifyContent: 'space-between', alignItems: { xs: 'flex-start', sm: 'center' },
-        gap: 1, borderBottom: 1, borderColor: 'divider', mb: 2, px: { xs: 2, sm: 0 },
+        justifyContent: 'space-between', alignItems: { xs: 'stretch', sm: 'center' },
+        gap: { xs: 1.5, sm: 0 },
       }}>
         <Tabs
           value={tabValue}
@@ -123,32 +124,26 @@ export default function Investments() {
           variant={isMobile ? 'scrollable' : 'standard'}
           scrollButtons={isMobile ? 'auto' : undefined}
           allowScrollButtonsMobile
+          sx={{ minHeight: 44 }}
         >
-          <Tab icon={<PieIcon />}   iconPosition="start" label="Visão Geral" />
-          <Tab icon={<TableView />} iconPosition="start" label="Posições" />
-          <Tab icon={<Timeline />}  iconPosition="start" label="Evolução" />
+          <Tab icon={<PieIcon />}   iconPosition="start" label="Visão Geral" sx={{ minHeight: 44 }} />
+          <Tab icon={<TableView />} iconPosition="start" label="Posições" sx={{ minHeight: 44 }} />
+          <Tab icon={<Timeline />}  iconPosition="start" label="Evolução" sx={{ minHeight: 44 }} />
         </Tabs>
-        <Chip
-          label={`Visão: ${activeLabel}`}
-          color="primary"
-          variant="outlined"
-          size="small"
-          sx={{ fontWeight: 700, mb: { xs: 0, sm: 1 } }}
-        />
       </Box>
 
       {/* KPI Cards */}
-      <Grid container spacing={2} sx={{ mb: 2, px: { xs: 2, sm: 0 } }} justifyContent="center">
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+      <Grid container spacing={2} sx={{ mb: 2, px: { xs: 1.5, sm: 0 } }} justifyContent="center">
+        <Grid size={{ xs: 6, sm: 6, md: 3 }}>
           <KPICard title="Patrimônio Atual"  value={formatCurrency(stats.patrimonioTotal)} icon={<AccountBalance />} color="#9c27b0" performance={stats.performanceGeral} />
         </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+        <Grid size={{ xs: 6, sm: 6, md: 3 }}>
           <KPICard title="Total Investido"   value={formatCurrency(stats.dinheiroDoBolso)} icon={<Stars />}          color={theme.palette.primary.main} />
         </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+        <Grid size={{ xs: 6, sm: 6, md: 3 }}>
           <KPICard title="Total Proventos"   value={formatCurrency(stats.dividendos)}      icon={<TrendingUp />}     color={theme.palette.success.main} />
         </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+        <Grid size={{ xs: 6, sm: 6, md: 3 }}>
           <KPICard title="Lucro/Prejuízo"    value={formatCurrency(stats.lucroReal)}        icon={<EmojiEvents />}    color={stats.lucroReal >= 0 ? '#ff9800' : theme.palette.error.main} />
         </Grid>
       </Grid>
@@ -157,7 +152,7 @@ export default function Investments() {
       {tabValue === 0 && (
         <Grid container spacing={2} justifyContent="center" sx={{ px: { xs: 0, sm: 0 } }}>
           <Grid size={{ xs: 12, md: 5 }} sx={{ px: { xs: 2, sm: 0 } }}>
-            <Paper sx={{ p: { xs: 2, sm: 3 }, borderRadius: 5, height: { xs: 480, md: 600 }, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <Paper sx={{ p: { xs: 2, sm: 3 }, borderRadius: 5, height: { xs: 480, md: 600 }, display: 'flex', flexDirection: 'column', alignItems: 'center', overflow: 'hidden' }}>
               <AllocationChart
                 viewMode={chartViewMode} data={currentChartData}
                 patrimonioTotal={stats.patrimonioTotal}
@@ -206,7 +201,7 @@ export default function Investments() {
                   labelDisplayedRows={({ from, to, count }) => `${from}-${to} de ${count}`} sx={{ borderTop: 'none' }} />
               </Paper>
             ) : (
-              <TableContainer component={Paper} sx={{ borderRadius: 5, height: 600, display: 'flex', flexDirection: 'column' }}>
+              <Paper sx={{ borderRadius: 5, height: 600, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                 <Box sx={{ p: 3, pb: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Typography variant="h6" fontWeight="900" color="text.secondary" display="flex" alignItems="center" gap={1}>
                     <QueryStats color="primary" /> Minha Carteira
@@ -215,7 +210,7 @@ export default function Investments() {
                     <InfoOutlined sx={{ color: 'text.disabled', fontSize: 20 }} />
                   </MuiTooltip>
                 </Box>
-                <Box sx={{ flexGrow: 1 }}>
+                <TableContainer sx={{ flexGrow: 1, overflow: 'auto' }}>
                   <Table size="small" stickyHeader>
                     <TableHead>
                       <TableRow>
@@ -249,12 +244,12 @@ export default function Investments() {
                       ))}
                     </TableBody>
                   </Table>
-                </Box>
+                </TableContainer>
                 <Divider />
                 <TablePagination component="div" count={stats.consolidatedPosition.length} rowsPerPage={rowsPerPage} page={page}
                   onPageChange={(_, p) => setPage(p)} rowsPerPageOptions={[]}
                   labelDisplayedRows={({ from, to, count }) => `${from}-${to} de ${count}`} sx={{ borderTop: 'none' }} />
-              </TableContainer>
+              </Paper>
             )}
           </Grid>
         </Grid>

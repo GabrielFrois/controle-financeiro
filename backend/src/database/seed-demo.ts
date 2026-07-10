@@ -2,15 +2,20 @@
  * seed-demo.ts — apaga e recria os dados de demonstração
  * (José, Maria, família, transações, investimentos e metas de exemplo)
  * Cobertura: 18 meses de histórico, múltiplas categorias, investimentos
- * diversificados (ações, FII, renda fixa, cripto, internacional) e metas
- * pessoais (pertencem ao José, mas refletem gastos combinados da família).
+ * diversificados (ações, FII, renda fixa, cripto, internacional), metas
+ * pessoais e agora também cartão de crédito de verdade por usuário:
+ *   - Cada um tem seu próprio cartão (limite, dia de fechamento/vencimento)
+ *   - Compras parceladas (installment_group_id) com parcelas passadas E futuras
+ *   - Faturas de meses anteriores pagas (is_invoice_payment), só o mês
+ *     corrente fica em aberto — pra mostrar o fluxo completo de fatura.
  * uso: npm run seed:demo
  */
+import { randomUUID } from 'crypto';
 import pool from './index.js';
 import bcrypt from 'bcrypt';
 
 const DEMO_USERNAMES = ['jose', 'maria'];
-const DEMO_PASSWORD = 'demo123';
+const DEMO_PASSWORD = 'exemplo123';
 const MONTHS = 18; // janela de histórico (meses atrás), inclui o mês atual (i = 0)
 
 const getDate = (monthsAgo: number, day: number) => {
@@ -22,6 +27,23 @@ const getDate = (monthsAgo: number, day: number) => {
   return d.toISOString().split('T')[0];
 };
 
+// Mês de referência (YYYY-MM) de uma data "monthsAgo" meses atrás.
+// monthsAgo negativo = mês no futuro (usado pelas parcelas ainda não vencidas).
+const getYearMonth = (monthsAgo: number) => {
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() - monthsAgo);
+  return d.toISOString().slice(0, 7);
+};
+
+// Inverso de getDate: a partir de uma data "YYYY-MM-DD" já gerada, calcula
+// quantos meses atrás ela está (mesmo critério de "i" usado para gerá-la).
+const monthsAgoFromDate = (dateStr: string): number => {
+  const [y, m] = dateStr.split('-').map(Number);
+  const today = new Date();
+  return (today.getFullYear() - y) * 12 + (today.getMonth() + 1 - m);
+};
+
 async function upsertAsset(client: any, ticker: string, investmentType?: string): Promise<number | null> {
   if (!ticker || ticker.trim() === '') return null;
   const type = investmentType && investmentType !== 'RENDA_FIXA' ? investmentType : 'Variável';
@@ -29,6 +51,42 @@ async function upsertAsset(client: any, ticker: string, investmentType?: string)
     `INSERT INTO assets (ticker, type) VALUES ($1, $2)
      ON CONFLICT (ticker) DO UPDATE SET type = EXCLUDED.type RETURNING id`,
     [ticker.trim().toUpperCase(), type]
+  );
+  return result.rows[0].id;
+}
+
+// Cartão de crédito é privado por usuário (payment_methods.user_id preenchido).
+// Cria (ou atualiza) um cartão para um usuário específico e devolve o id.
+async function upsertPaymentMethod(
+  client: any,
+  userId: number,
+  name: string,
+  opts: { closing_day?: number; due_day?: number; card_limit?: number } = {}
+): Promise<number> {
+  const result = await client.query(
+    `INSERT INTO payment_methods (name, user_id, closing_day, due_day, card_limit, active)
+     VALUES ($1, $2, $3, $4, $5, TRUE)
+     ON CONFLICT (user_id, name) WHERE user_id IS NOT NULL DO UPDATE
+       SET closing_day = EXCLUDED.closing_day,
+           due_day      = EXCLUDED.due_day,
+           card_limit   = EXCLUDED.card_limit,
+           active       = TRUE
+     RETURNING id`,
+    [name, userId, opts.closing_day ?? null, opts.due_day ?? null, opts.card_limit ?? null]
+  );
+  return result.rows[0].id;
+}
+
+// Métodos padrão (Dinheiro, Pix, Débito, Transferência, Saldo Corretora) são
+// globais/compartilhados (user_id NULL) — não pertencem a um usuário
+// específico, todo mundo usa os mesmos.
+async function upsertGlobalPaymentMethod(client: any, name: string): Promise<number> {
+  const result = await client.query(
+    `INSERT INTO payment_methods (name, user_id, active)
+     VALUES ($1, NULL, TRUE)
+     ON CONFLICT (name) WHERE user_id IS NULL DO UPDATE SET active = TRUE
+     RETURNING id`,
+    [name]
   );
   return result.rows[0].id;
 }
@@ -58,6 +116,8 @@ async function seedDemo() {
       await client.query(`DELETE FROM transactions   WHERE user_id = ANY($1)`, [existingIds]);
       await client.query(`DELETE FROM budgets        WHERE user_id = ANY($1)`, [existingIds]);
       await client.query(`DELETE FROM family_members WHERE user_id = ANY($1)`, [existingIds]);
+      // payment_methods dos usuários demo são removidos via ON DELETE CASCADE
+      // quando os usuários abaixo forem apagados.
     }
 
     await client.query(`
@@ -90,9 +150,34 @@ async function seedDemo() {
     const catMap: Record<string, number> = {};
     for (const row of catRes.rows) catMap[row.name] = row.id;
 
-    const methRes = await client.query('SELECT id, name FROM payment_methods');
-    const methMap: Record<string, number> = {};
-    for (const row of methRes.rows) methMap[row.name] = row.id;
+    // ────────────────────────────────────────────────────────────────────
+    // 5. MÉTODOS DE PAGAMENTO — os "comuns" são globais/compartilhados entre
+    // todos os usuários; só o cartão de crédito é privado por usuário (cada
+    // um com seu próprio limite e dia de fechamento/vencimento, pra ficar
+    // realista).
+    // ────────────────────────────────────────────────────────────────────
+    // Limites calibrados considerando o saldo comprometido REAL (mês atual +
+    // parcelas futuras já comprometidas, não só o gasto do mês corrente):
+    // José fica em ~83% de uso (saudável); Maria propositalmente ultrapassa
+    // o limite (~121%) pra também demonstrar o estado "limite excedido" da UI.
+    const JOSE_CARD_LIMIT  = 3200;
+    const MARIA_CARD_LIMIT = 2600;
+
+    const stdMeth: Record<string, number> = {
+      'Dinheiro':        await upsertGlobalPaymentMethod(client, 'Dinheiro'),
+      'Pix':             await upsertGlobalPaymentMethod(client, 'Pix'),
+      'Débito':          await upsertGlobalPaymentMethod(client, 'Débito'),
+      'Transferência':   await upsertGlobalPaymentMethod(client, 'Transferência'),
+      'Saldo Corretora': await upsertGlobalPaymentMethod(client, 'Saldo Corretora'),
+    };
+
+    const cartaoJoseId  = await upsertPaymentMethod(client, joseId, 'Cartão Nubank', { closing_day: 25, due_day: 5, card_limit: JOSE_CARD_LIMIT });
+    const cartaoMariaId = await upsertPaymentMethod(client, mariaId, 'Cartão Inter', { closing_day: 20, due_day: 1, card_limit: MARIA_CARD_LIMIT });
+
+    const methMapJose: Record<string, number>  = { ...stdMeth, 'Cartão': cartaoJoseId };
+    const methMapMaria: Record<string, number> = { ...stdMeth, 'Cartão': cartaoMariaId };
+
+    const methMapFor = (uid: number) => (uid === joseId ? methMapJose : methMapMaria);
 
     // ────────────────────────────────────────────────────────────────────
     // 6. TRANSAÇÕES COMUNS — 18 meses (i = MONTHS-1 ... 0, 0 = mês atual)
@@ -120,31 +205,31 @@ async function seedDemo() {
       if (i === 13 || i === 2) txs.push({ uid: mariaId, cat: 'Manutenção/Reparos Casa', pay: 'Débito', desc: 'Reparo Hidráulico', val: 150, type: 'EXPENSE', date: getDate(i, 17) });
       txs.push({ uid: mariaId, cat: 'Limpeza/Produtos de Casa',   pay: 'Débito',        desc: 'Produtos de Limpeza',   val: 90,   type: 'EXPENSE', date: getDate(i, 12) });
 
-      txs.push({ uid: mariaId, cat: 'Supermercado',   pay: 'Crédito', desc: 'Compras do Mês',    val: 950, type: 'EXPENSE', date: getDate(i, 12) });
-      txs.push({ uid: joseId,  cat: 'Restaurante',    pay: 'Crédito', desc: 'Jantar Fora',        val: 220, type: 'EXPENSE', date: getDate(i, 18) });
+      txs.push({ uid: mariaId, cat: 'Supermercado',   pay: 'Cartão', desc: 'Compras do Mês',    val: 950, type: 'EXPENSE', date: getDate(i, 12) });
+      txs.push({ uid: joseId,  cat: 'Restaurante',    pay: 'Cartão', desc: 'Jantar Fora',        val: 220, type: 'EXPENSE', date: getDate(i, 18) });
       txs.push({ uid: mariaId, cat: 'Lanches/Cafés',  pay: 'Débito',  desc: 'Cafeteria',          val: 80,  type: 'EXPENSE', date: getDate(i, 22) });
-      txs.push({ uid: joseId,  cat: 'Delivery',       pay: 'Crédito', desc: 'iFood',              val: 120, type: 'EXPENSE', date: getDate(i, 25) });
+      txs.push({ uid: joseId,  cat: 'Delivery',       pay: 'Cartão', desc: 'iFood',              val: 120, type: 'EXPENSE', date: getDate(i, 25) });
       txs.push({ uid: mariaId, cat: 'Padaria',        pay: 'Dinheiro', desc: 'Padaria do Bairro', val: 50,  type: 'EXPENSE', date: getDate(i, 3)  });
 
       txs.push({ uid: joseId,  cat: 'Combustível',              pay: 'Débito', desc: 'Combustível',         val: 280, type: 'EXPENSE', date: getDate(i, 14) });
       txs.push({ uid: mariaId, cat: 'Transporte Público/App',   pay: 'Débito', desc: 'Uber/Ônibus',         val: 150, type: 'EXPENSE', date: getDate(i, 16) });
       txs.push({ uid: joseId,  cat: 'Estacionamento',           pay: 'Débito', desc: 'Estacionamento',      val: 40,  type: 'EXPENSE', date: getDate(i, 9)  });
       if (i % 2 === 0) txs.push({ uid: joseId, cat: 'Pedágio', pay: 'Débito', desc: 'Pedágio Rodovia', val: 30, type: 'EXPENSE', date: getDate(i, 6) });
-      if (i === 14 || i === 4) txs.push({ uid: joseId, cat: 'Mecânico', pay: 'Crédito', desc: 'Revisão do Carro', val: 450, type: 'EXPENSE', date: getDate(i, 21) });
-      if (i === 17 || i === 5) txs.push({ uid: joseId, cat: 'Seguro Veicular', pay: 'Crédito', desc: 'Seguro Anual do Carro', val: 1200, type: 'EXPENSE', date: getDate(i, 27) });
+      if (i === 14 || i === 4) txs.push({ uid: joseId, cat: 'Mecânico', pay: 'Cartão', desc: 'Revisão do Carro', val: 450, type: 'EXPENSE', date: getDate(i, 21) });
+      if (i === 17 || i === 5) txs.push({ uid: joseId, cat: 'Seguro Veicular', pay: 'Cartão', desc: 'Seguro Anual do Carro', val: 1200, type: 'EXPENSE', date: getDate(i, 27) });
       if (i === 17) txs.push({ uid: joseId, cat: 'IPVA/Licenciamento', pay: 'Transferência', desc: 'IPVA + Licenciamento', val: 800, type: 'EXPENSE', date: getDate(i, 30) });
 
       txs.push({ uid: mariaId, cat: 'Farmácia',        pay: 'Débito',  desc: 'Medicamentos',      val: 90,  type: 'EXPENSE', date: getDate(i, 19) });
-      txs.push({ uid: mariaId, cat: 'Plano de Saúde',  pay: 'Crédito', desc: 'Plano de Saúde',     val: 420, type: 'EXPENSE', date: getDate(i, 8)  });
+      txs.push({ uid: mariaId, cat: 'Plano de Saúde',  pay: 'Cartão', desc: 'Plano de Saúde',     val: 420, type: 'EXPENSE', date: getDate(i, 8)  });
       txs.push({ uid: mariaId, cat: 'Terapia',         pay: 'Pix',     desc: 'Sessão de Terapia',  val: 200, type: 'EXPENSE', date: getDate(i, 13) });
-      if (i === 10) txs.push({ uid: mariaId, cat: 'Dentista', pay: 'Crédito', desc: 'Tratamento Dentário', val: 300, type: 'EXPENSE', date: getDate(i, 23) });
-      if (i === 8)  txs.push({ uid: joseId,  cat: 'Médico/Exames', pay: 'Crédito', desc: 'Check-up Anual', val: 350, type: 'EXPENSE', date: getDate(i, 20) });
+      if (i === 10) txs.push({ uid: mariaId, cat: 'Dentista', pay: 'Cartão', desc: 'Tratamento Dentário', val: 300, type: 'EXPENSE', date: getDate(i, 23) });
+      if (i === 8)  txs.push({ uid: joseId,  cat: 'Médico/Exames', pay: 'Cartão', desc: 'Check-up Anual', val: 350, type: 'EXPENSE', date: getDate(i, 20) });
 
-      txs.push({ uid: joseId,  cat: 'Academia/Esportes',  pay: 'Crédito', desc: 'Mensalidade Academia', val: 120, type: 'EXPENSE', date: getDate(i, 5)  });
+      txs.push({ uid: joseId,  cat: 'Academia/Esportes',  pay: 'Cartão', desc: 'Mensalidade Academia', val: 120, type: 'EXPENSE', date: getDate(i, 5)  });
       txs.push({ uid: joseId,  cat: 'Barbearia/Salão',    pay: 'Dinheiro', desc: 'Corte de Cabelo',     val: 80,  type: 'EXPENSE', date: getDate(i, 15) });
       txs.push({ uid: mariaId, cat: 'Cosméticos/Higiene', pay: 'Débito',  desc: 'Produtos de Higiene',  val: 100, type: 'EXPENSE', date: getDate(i, 12) });
-      if (i % 2 === 0) txs.push({ uid: mariaId, cat: 'Roupas/Acessórios', pay: 'Crédito', desc: 'Compra de Roupas', val: 250, type: 'EXPENSE', date: getDate(i, 24) });
-      if (i === 11 || i === 0) txs.push({ uid: joseId, cat: 'Presentes para Outros', pay: 'Crédito', desc: 'Presente de Fim de Ano', val: 150, type: 'EXPENSE', date: getDate(i, 20) });
+      if (i % 2 === 0) txs.push({ uid: mariaId, cat: 'Roupas/Acessórios', pay: 'Cartão', desc: 'Compra de Roupas', val: 250, type: 'EXPENSE', date: getDate(i, 24) });
+      if (i === 11 || i === 0) txs.push({ uid: joseId, cat: 'Presentes para Outros', pay: 'Cartão', desc: 'Presente de Fim de Ano', val: 150, type: 'EXPENSE', date: getDate(i, 20) });
       txs.push({ uid: joseId,  cat: 'Lavanderia', pay: 'Dinheiro', desc: 'Lavanderia', val: 60, type: 'EXPENSE', date: getDate(i, 17) });
 
       if (i % 3 === 0) txs.push({ uid: mariaId, cat: 'Cursos/Treinamentos', pay: 'Pix', desc: 'Curso Online', val: 200, type: 'EXPENSE', date: getDate(i, 18) });
@@ -152,14 +237,14 @@ async function seedDemo() {
       if (i % 3 === 0) txs.push({ uid: mariaId, cat: 'Papelaria', pay: 'Débito', desc: 'Material de Escritório', val: 40, type: 'EXPENSE', date: getDate(i, 9) });
       if (i % 6 === 0) txs.push({ uid: mariaId, cat: 'Faculdade/Escola', pay: 'Transferência', desc: 'Mensalidade Curso', val: 600, type: 'EXPENSE', date: getDate(i, 10) });
 
-      if (i % 2 === 0) txs.push({ uid: joseId, cat: 'Cinema/Shows/Teatro', pay: 'Crédito', desc: 'Cinema', val: 100, type: 'EXPENSE', date: getDate(i, 21) });
-      if (i === 16 || i === 6) txs.push({ uid: joseId, cat: 'Viagens/Hospedagem', pay: 'Crédito', desc: 'Viagem de Férias', val: 2000, type: 'EXPENSE', date: getDate(i, 15) });
+      if (i % 2 === 0) txs.push({ uid: joseId, cat: 'Cinema/Shows/Teatro', pay: 'Cartão', desc: 'Cinema', val: 100, type: 'EXPENSE', date: getDate(i, 21) });
+      if (i === 16 || i === 6) txs.push({ uid: joseId, cat: 'Viagens/Hospedagem', pay: 'Cartão', desc: 'Viagem de Férias', val: 2000, type: 'EXPENSE', date: getDate(i, 15) });
       txs.push({ uid: joseId, cat: 'Hobby', pay: 'Débito', desc: 'Material de Hobby', val: 100, type: 'EXPENSE', date: getDate(i, 26) });
-      txs.push({ uid: joseId, cat: 'Assinaturas', pay: 'Crédito', desc: 'Streaming / Lazer', val: 150, type: 'EXPENSE', date: getDate(i, 20) });
+      txs.push({ uid: joseId, cat: 'Assinaturas', pay: 'Cartão', desc: 'Streaming / Lazer', val: 150, type: 'EXPENSE', date: getDate(i, 20) });
 
-      txs.push({ uid: mariaId, cat: 'Pet: Ração', pay: 'Crédito', desc: 'Ração Mensal', val: 130, type: 'EXPENSE', date: getDate(i, 7) });
+      txs.push({ uid: mariaId, cat: 'Pet: Ração', pay: 'Cartão', desc: 'Ração Mensal', val: 130, type: 'EXPENSE', date: getDate(i, 7) });
       if (i % 3 === 0) txs.push({ uid: mariaId, cat: 'Pet: Acessórios', pay: 'Débito', desc: 'Brinquedos do Pet', val: 80, type: 'EXPENSE', date: getDate(i, 11) });
-      if (i % 4 === 0) txs.push({ uid: mariaId, cat: 'Pet: Veterinário/Vacinas', pay: 'Crédito', desc: 'Consulta Veterinária', val: 200, type: 'EXPENSE', date: getDate(i, 16) });
+      if (i % 4 === 0) txs.push({ uid: mariaId, cat: 'Pet: Veterinário/Vacinas', pay: 'Cartão', desc: 'Consulta Veterinária', val: 200, type: 'EXPENSE', date: getDate(i, 16) });
 
       txs.push({ uid: joseId,  cat: 'Tarifas Bancárias',  pay: 'Débito',        desc: 'Tarifa de Conta',     val: 25,  type: 'EXPENSE', date: getDate(i, 1)  });
       txs.push({ uid: joseId,  cat: 'Juros/Empréstimos',  pay: 'Débito',        desc: 'Parcela Empréstimo',  val: 150, type: 'EXPENSE', date: getDate(i, 10) });
@@ -170,12 +255,42 @@ async function seedDemo() {
     }
 
     for (const t of txs) {
-      if (!catMap[t.cat] || !methMap[t.pay]) continue;
+      if (!catMap[t.cat] || !methMapFor(t.uid)[t.pay]) continue;
       await client.query(
         `INSERT INTO transactions (description, amount, type, user_id, category_id, payment_method_id, date, investment_type)
          VALUES ($1,$2,$3,$4,$5,$6,$7,'OUTROS')`,
-        [t.desc, t.val, t.type, t.uid, catMap[t.cat], methMap[t.pay], t.date]
+        [t.desc, t.val, t.type, t.uid, catMap[t.cat], methMapFor(t.uid)[t.pay], t.date]
       );
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // 6.05 COMPRAS PARCELADAS NO CARTÃO — demonstra parcelamento de verdade:
+    // parcelas já pagas (passadas) e parcelas ainda futuras (comprometem o
+    // limite disponível hoje, mesmo sem terem "vencido" ainda).
+    // ────────────────────────────────────────────────────────────────────
+    interface Installment { uid: number; card: 'jose' | 'maria'; desc: string; total: number; n: number; startMonthsAgo: number; }
+    const installmentPurchases: Installment[] = [
+      { uid: joseId,  card: 'jose',  desc: 'Notebook Dell Inspiron', total: 3000, n: 10, startMonthsAgo: 4 },
+      { uid: mariaId, card: 'maria', desc: 'Geladeira Brastemp',     total: 1800, n: 6,  startMonthsAgo: 2 },
+    ];
+
+    for (const p of installmentPurchases) {
+      const groupId = randomUUID();
+      const installmentValue = p.total / p.n;
+      const catId = catMap['Outras Despesas'];
+      const payId = methMapFor(p.uid)['Cartão'];
+      if (!catId || !payId) continue;
+
+      for (let k = 0; k < p.n; k++) {
+        const monthsAgo = p.startMonthsAgo - k; // decresce; fica negativo = parcela futura
+        const label = ` (${k + 1}/${p.n})`;
+        await client.query(
+          `INSERT INTO transactions
+             (description, amount, type, user_id, category_id, payment_method_id, date, investment_type, installment_group_id)
+           VALUES ($1,$2,'EXPENSE',$3,$4,$5,$6,'OUTROS',$7)`,
+          [`${p.desc}${label}`, installmentValue, p.uid, catId, payId, getDate(monthsAgo, 15), groupId]
+        );
+      }
     }
 
     // ────────────────────────────────────────────────────────────────────
@@ -214,18 +329,68 @@ async function seedDemo() {
     }
 
     for (const t of investTxs) {
-      if (!catMap[t.cat] || !methMap[t.pay]) continue;
+      if (!catMap[t.cat] || !methMapFor(t.uid)[t.pay]) continue;
       await client.query(
         `INSERT INTO transactions
            (description, amount, type, user_id, category_id, payment_method_id,
             date, asset_id, quantity, investment_type, yield_rate)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-        [t.desc, t.val, t.type, t.uid, catMap[t.cat], methMap[t.pay], t.date, t.assetId, t.qty, t.investType, t.yieldRate]
+        [t.desc, t.val, t.type, t.uid, catMap[t.cat], methMapFor(t.uid)[t.pay], t.date, t.assetId, t.qty, t.investType, t.yieldRate]
       );
     }
 
     // ────────────────────────────────────────────────────────────────────
-    // 6.3 METAS DE ORÇAMENTO (tela "Metas") — agora pertencem a um usuário.
+    // 6.3 PAGAMENTOS DE FATURA — quita o cartão de cada mês passado
+    // (i de MONTHS-1 até 1), deixando só o mês corrente (i=0) em aberto,
+    // pra mostrar tanto o histórico de faturas pagas quanto uma fatura
+    // pendente na tela de "Faturas".
+    // ────────────────────────────────────────────────────────────────────
+    // Recalcula o total gasto no cartão por usuário/mês a partir dos `txs`
+    // já definidos acima (chave "uid_i", onde i = quantos meses atrás).
+    const cardSpend = new Map<string, number>();
+    for (const t of txs) {
+      if (t.pay !== 'Cartão' || t.type !== 'EXPENSE') continue;
+      const i = monthsAgoFromDate(t.date);
+      const key = `${t.uid}_${i}`;
+      cardSpend.set(key, (cardSpend.get(key) ?? 0) + t.val);
+    }
+    // Soma as parcelas de compras parceladas (já com valor por parcela).
+    for (const p of installmentPurchases) {
+      for (let k = 0; k < p.n; k++) {
+        const monthsAgo = p.startMonthsAgo - k;
+        if (monthsAgo < 0) continue; // parcela futura, ainda não "gasta" no passado
+        const key = `${p.uid}_${monthsAgo}`;
+        cardSpend.set(key, (cardSpend.get(key) ?? 0) + p.total / p.n);
+      }
+    }
+
+    const payFaturaCatId = catMap['Pagamento de Fatura'];
+    for (const uid of [joseId, mariaId]) {
+      const cardId  = methMapFor(uid)['Cartão'];
+      const debitId = methMapFor(uid)['Débito'];
+      if (!cardId || !debitId || !payFaturaCatId) continue;
+
+      for (let i = MONTHS - 1; i >= 1; i--) { // deixa i=0 (mês corrente) em aberto
+        const total = cardSpend.get(`${uid}_${i}`) ?? 0;
+        if (total <= 0) continue;
+        // Fatura da compra feita em "i meses atrás" vence no mês seguinte
+        // (due_day <= closing_day pra ambos os cartões deste seed).
+        const invoiceRefMonth = getYearMonth(i - 1);
+        await client.query(
+          `INSERT INTO transactions
+             (description, amount, type, user_id, category_id, payment_method_id,
+              date, investment_type, is_invoice_payment, paid_card_id, invoice_reference_month)
+           VALUES ($1,$2,'EXPENSE',$3,$4,$5,$6,'OUTROS',TRUE,$7,$8)`,
+          [
+            `Pagamento Fatura ${uid === joseId ? 'Nubank' : 'Inter'} - ${invoiceRefMonth}`,
+            total, uid, payFaturaCatId, debitId, getDate(i - 1, 3), cardId, invoiceRefMonth,
+          ]
+        );
+      }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // 6.4 METAS DE ORÇAMENTO (tela "Metas") — agora pertencem a um usuário.
     // Colocamos todas no José: ele é quem define o teto, mas o "gasto atual"
     // exibido soma José + Maria (família), então a meta reflete o gasto real
     // da casa mesmo pertencendo só a ele.
@@ -274,7 +439,7 @@ async function seedDemo() {
     }
 
     // 7. Família demo
-    const famRes = await client.query(`INSERT INTO families (name) VALUES ('Família Demo') RETURNING id`);
+    const famRes = await client.query(`INSERT INTO families (name) VALUES ('Família Exemplo') RETURNING id`);
     const familyId: number = famRes.rows[0].id;
     await client.query(
       `INSERT INTO family_members (family_id, user_id) VALUES ($1,$2),($1,$3)`,
@@ -283,10 +448,11 @@ async function seedDemo() {
 
     await client.query('COMMIT');
     console.log('>>> seed:demo concluído! Dados de demo resetados.');
-    console.log(`    jose  / demo123`);
-    console.log(`    maria / demo123`);
-    console.log(`    Família "Família Demo": José + Maria`);
+    console.log(`    jose  / exemplo123  (Cartão Nubank: limite R$ ${JOSE_CARD_LIMIT}, fecha dia 25, vence dia 5)`);
+    console.log(`    maria / exemplo123  (Cartão Inter:  limite R$ ${MARIA_CARD_LIMIT}, fecha dia 20, vence dia 1)`);
+    console.log(`    Família "Família Exemplo": José + Maria`);
     console.log(`    ${MONTHS} meses de histórico | transações + investimentos + metas (do José)`);
+    console.log(`    Cartões: parcelamento (Notebook 10x / Geladeira 6x) + faturas passadas pagas + mês corrente em aberto`);
     console.log(`    (admin e seus dados não foram alterados)`);
   } catch (e) {
     await client.query('ROLLBACK');

@@ -1,4 +1,4 @@
-import { Box, Typography, Stack, ToggleButtonGroup, ToggleButton } from '@mui/material';
+import { Box, Typography, Stack, ToggleButtonGroup, ToggleButton, useTheme, useMediaQuery } from '@mui/material';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#9c27b0'];
@@ -22,9 +22,12 @@ interface Props {
 }
 
 export default function AllocationChart({ viewMode, data, patrimonioTotal, onViewModeChange, getAssetColor }: Props) {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%' }}>
-      <Typography variant="h6" fontWeight="900" color="text.secondary" mb={2}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', width: '100%', overflow: 'hidden' }}>
+      <Typography variant="h6" fontWeight="900" color="text.secondary" mb={{ xs: 1, sm: 2 }} sx={{ fontSize: { xs: '1rem', sm: '1.25rem' } }}>
         Distribuição da Carteira
       </Typography>
       <ToggleButtonGroup
@@ -33,8 +36,8 @@ export default function AllocationChart({ viewMode, data, patrimonioTotal, onVie
         sx={{
           mb: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', borderRadius: 8,
           '& .MuiToggleButton-root': {
-            border: 'none', borderRadius: 8, px: 2, py: 0.5, mx: 0.5, my: 0.5,
-            textTransform: 'none', fontWeight: 700, fontSize: '0.8rem', color: 'text.secondary',
+            border: 'none', borderRadius: 8, px: { xs: 1.25, sm: 2 }, py: 0.5, mx: 0.5, my: 0.5,
+            textTransform: 'none', fontWeight: 700, fontSize: { xs: '0.7rem', sm: '0.8rem' }, color: 'text.secondary',
             '&.Mui-selected': { bgcolor: 'primary.main', color: '#fff', '&:hover': { bgcolor: 'primary.dark' } },
           },
         }}
@@ -44,10 +47,10 @@ export default function AllocationChart({ viewMode, data, patrimonioTotal, onVie
         <ToggleButton value="geo">Geo</ToggleButton>
       </ToggleButtonGroup>
 
-      <Box sx={{ flexGrow: 1, width: '100%', minHeight: 260 }}>
+      <Box sx={{ flexGrow: 1, width: '100%', minHeight: isMobile ? 160 : 260, overflow: 'hidden' }}>
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
-            <Pie data={data} innerRadius={90} outerRadius={130} dataKey="value" stroke="none" paddingAngle={5}>
+            <Pie data={data} innerRadius={isMobile ? 55 : 90} outerRadius={isMobile ? 80 : 130} dataKey="value" stroke="none" paddingAngle={5}>
               {data.map((entry, index) => (
                 <Cell key={index} fill={viewMode === 'assets' ? COLORS[index % COLORS.length] : getAssetColor(entry.name)} />
               ))}
@@ -67,7 +70,7 @@ export default function AllocationChart({ viewMode, data, patrimonioTotal, onVie
         </ResponsiveContainer>
       </Box>
 
-      <Stack spacing={1} sx={{ mt: 3, px: 2, width: '100%', maxHeight: 150, overflowY: 'auto' }}>
+      <Stack spacing={1} sx={{ mt: { xs: 1.5, sm: 3 }, px: 2, width: '100%', maxHeight: isMobile ? 110 : 150, overflowY: 'auto' }}>
         {data.slice(0, 5).map((item, i) => (
           <Box key={i} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>

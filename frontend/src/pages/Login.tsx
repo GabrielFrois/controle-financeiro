@@ -31,7 +31,7 @@ export default function Login() {
       <Card sx={{ width: 380, p: 2 }}>
         <CardContent>
           <Typography variant="h5" fontWeight={700} mb={3} textAlign="center">
-            Controle Financeiro
+            ZeloFy
           </Typography>
           {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
           <TextField label="Usuário" type="text" fullWidth margin="normal" autoCapitalize="none" autoCorrect="off"

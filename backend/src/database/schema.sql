@@ -29,12 +29,24 @@ CREATE TABLE IF NOT EXISTS categories (
 
 CREATE TABLE IF NOT EXISTS payment_methods (
     id          SERIAL PRIMARY KEY,
-    name        VARCHAR(100) UNIQUE NOT NULL,
+    name        VARCHAR(100) NOT NULL,
     active      BOOLEAN      DEFAULT TRUE,
     closing_day INTEGER,
     due_day     INTEGER,
     card_limit  DECIMAL(10, 2)
 );
+
+-- Cartão de crédito é privado por usuário. Os demais métodos (Dinheiro, Pix,
+-- Débito, Transferência, Saldo Corretora) continuam padrão/compartilhados.
+-- user_id NULL      = método padrão, visível e utilizável por todos.
+-- user_id preenchido = cartão de crédito privado daquele usuário.
+ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;
+ALTER TABLE payment_methods DROP CONSTRAINT IF EXISTS payment_methods_name_key;
+-- nome único entre os métodos padrão (globais)
+CREATE UNIQUE INDEX IF NOT EXISTS payment_methods_global_name_key ON payment_methods(name) WHERE user_id IS NULL;
+-- nome único por usuário, entre os cartões privados dele
+CREATE UNIQUE INDEX IF NOT EXISTS payment_methods_user_name_key ON payment_methods(user_id, name) WHERE user_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_payment_methods_user_id ON payment_methods(user_id);
 
 CREATE TABLE IF NOT EXISTS assets (
     id           SERIAL PRIMARY KEY,
@@ -102,3 +114,13 @@ CREATE INDEX IF NOT EXISTS idx_transactions_date     ON transactions(date);
 CREATE INDEX IF NOT EXISTS idx_transactions_user_id  ON transactions(user_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_group_id ON transactions(installment_group_id);
 CREATE INDEX IF NOT EXISTS idx_family_members_user   ON family_members(user_id);
+
+ALTER TABLE assets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE budgets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE families ENABLE ROW LEVEL SECURITY;
+ALTER TABLE family_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE login_ip_attempts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payment_methods ENABLE ROW LEVEL SECURITY;
+ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;

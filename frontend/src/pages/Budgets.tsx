@@ -3,7 +3,7 @@ import { useFamily } from '../context/FamilyContext';
 import { useAuth } from '../context/AuthContext';
 import { 
   Box, Typography, LinearProgress, Paper, Grid, CircularProgress, 
-  useTheme, Button, Dialog, DialogTitle, DialogContent, 
+  useTheme, useMediaQuery, Button, Dialog, DialogTitle, DialogContent, 
   DialogActions, TextField, MenuItem, IconButton, Stack,
   Divider, Chip
 } from '@mui/material';
@@ -12,6 +12,7 @@ import api from '../services/api';
 
 export default function Budgets() {
   const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { families, activeUserIds, activeLabel } = useFamily();
   const { user, isAdmin } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -138,14 +139,13 @@ export default function Budgets() {
     const canManage = isAdmin || b.user_id === user?.id;
 
     return (
-      <Grid size={{ xs: 12, sm: 6, md: 3 }} key={b.id}>
+      <Grid size={{ xs: 6, sm: 6, md: 3 }} key={b.id}>
         <Paper sx={{ 
-          p: 3, 
+          p: { xs: 1.5, sm: 3 }, 
           borderRadius: 5, 
           border: '1px solid', 
           borderColor: 'divider',
-          minHeight: 200,
-          minWidth: { xs: '100%', sm: '280px' },
+          minHeight: { xs: 170, sm: 200 },
           display: 'flex',
           flexDirection: 'column',
           justifyContent: 'space-between',
@@ -158,17 +158,17 @@ export default function Budgets() {
           }
         }}>
           <Box>
-            <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
-              <Typography variant="subtitle2" color="text.secondary" fontWeight="900" sx={{ textTransform: 'uppercase' }}>
+            <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1} gap={0.5}>
+              <Typography variant="subtitle2" color="text.secondary" fontWeight="900" noWrap sx={{ textTransform: 'uppercase', fontSize: { xs: '0.7rem', sm: '0.875rem' } }}>
                 {b.category_name || 'Categoria'} 
               </Typography>
               {canManage && (
-                <Box sx={{ display: 'flex', gap: 0.5 }}>
-                  <IconButton size="small" onClick={() => handleOpen(b)} color="primary">
-                    <Edit sx={{ fontSize: 18 }} />
+                <Box sx={{ display: 'flex', gap: 0.25, flexShrink: 0 }}>
+                  <IconButton size="small" onClick={() => handleOpen(b)} color="primary" sx={{ p: { xs: 0.4, sm: 0.75 } }}>
+                    <Edit sx={{ fontSize: { xs: 15, sm: 18 } }} />
                   </IconButton>
-                  <IconButton size="small" onClick={() => handleOpenDelete(b)} color="error">
-                    <Delete sx={{ fontSize: 18 }} />
+                  <IconButton size="small" onClick={() => handleOpenDelete(b)} color="error" sx={{ p: { xs: 0.4, sm: 0.75 } }}>
+                    <Delete sx={{ fontSize: { xs: 15, sm: 18 } }} />
                   </IconButton>
                 </Box>
               )}
@@ -178,16 +178,16 @@ export default function Budgets() {
               size="small"
               label={b.user_name}
               sx={{
-                mb: 1, height: 20, fontSize: '0.7rem', fontWeight: 700,
+                mb: 1, height: { xs: 18, sm: 20 }, fontSize: { xs: '0.6rem', sm: '0.7rem' }, fontWeight: 700,
                 bgcolor: `${b.user_color}22`, color: b.user_color,
               }}
             />
 
-            <Box sx={{ my: 1.5 }}>
-              <Typography variant="h4" fontWeight="900">
+            <Box sx={{ my: { xs: 0.75, sm: 1.5 } }}>
+              <Typography fontWeight="900" sx={{ fontSize: { xs: '1.05rem', sm: '2.125rem' }, lineHeight: 1.2 }}>
                 {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(b.spent)}
               </Typography>
-              <Typography variant="caption" color="text.secondary" fontWeight="bold">
+              <Typography variant="caption" color="text.secondary" fontWeight="bold" sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem' } }}>
                 LIMITE: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(b.amount)}
               </Typography>
             </Box>
@@ -198,15 +198,15 @@ export default function Budgets() {
               variant="determinate" 
               value={Math.min(b.percent, 100)} 
               sx={{ 
-                height: 12, borderRadius: 6, mb: 1, bgcolor: 'action.hover',
+                height: { xs: 8, sm: 12 }, borderRadius: 6, mb: 1, bgcolor: 'action.hover',
                 '& .MuiLinearProgress-bar': { bgcolor: progressColor }
               }} 
             />
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Typography variant="caption" fontWeight="900" color={b.percent > 100 ? 'error.main' : 'text.secondary'}>
+              <Typography fontWeight="900" color={b.percent > 100 ? 'error.main' : 'text.secondary'} sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem' } }}>
                 {b.percent.toFixed(0)}% consumido
               </Typography>
-              {b.percent > 100 && <Warning color="error" sx={{ fontSize: 18 }} />}
+              {b.percent > 100 && <Warning color="error" sx={{ fontSize: { xs: 15, sm: 18 } }} />}
             </Box>
           </Box>
         </Paper>
@@ -219,13 +219,14 @@ export default function Budgets() {
   return (
     <Box sx={{ pt: { xs: 2, md: 4 }, px: { xs: 1.5, sm: 2, md: 4 }, pb: { xs: 2, md: 4 }, maxWidth: '1400px', margin: '0 auto' }}>
       <Box sx={{ mb: 1, display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center', justifyContent: 'space-between' }}>
-        <Typography variant="h4" fontWeight="900" sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <TrackChanges fontSize="large" color="primary" /> Metas Financeiras
+        <Typography variant="h4" fontWeight="900" sx={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: { xs: '1.5rem', sm: '2.125rem' } }}>
+            <TrackChanges fontSize={isMobile ? 'medium' : 'large'} color="primary" /> Metas Financeiras
         </Typography>
         <Button 
             variant="contained" 
             startIcon={<Add />} 
             onClick={() => handleOpen()} 
+            fullWidth={isMobile}
             sx={{ borderRadius: 3, px: 3, fontWeight: 'bold' }}
         >
           Nova Meta

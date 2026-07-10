@@ -17,7 +17,6 @@ import {
 } from 'recharts';
 import api from '../services/api';
 import { useInvestments } from '../hooks/useInvestments';
-import { useFamily } from '../context/FamilyContext';
 import KPICard from '../components/investments/KPICard';
 import AllocationChart from '../components/investments/AllocationChart';
 
@@ -41,8 +40,6 @@ const compactCell = { px: 1 };
 export default function Investments() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-  const { activeLabel } = useFamily();
-
   // userFilter fixo em 'Todos' — filtragem real já vem do FamilyContext via useInvestments
   const { loading, stats, fetchData } = useInvestments('Todos');
 

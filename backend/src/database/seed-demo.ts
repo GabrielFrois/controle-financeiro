@@ -390,12 +390,13 @@ async function seedDemo() {
     }
 
     // ────────────────────────────────────────────────────────────────────
-    // 6.4 METAS DE ORÇAMENTO (tela "Metas") — agora pertencem a um usuário.
-    // Colocamos todas no José: ele é quem define o teto, mas o "gasto atual"
-    // exibido soma José + Maria (família), então a meta reflete o gasto real
-    // da casa mesmo pertencendo só a ele.
+    // 6.4 METAS DE ORÇAMENTO (tela "Metas") — pertencem a um usuário e têm
+    // um escopo: FAMILY soma o gasto de José + Maria; PERSONAL soma só o
+    // gasto do próprio dono. Deixamos a maioria em FAMILY (teto da casa) e
+    // um punhado em PERSONAL (gasto individual do José), pra demo mostrar
+    // as duas visões na tela de Metas.
     // ────────────────────────────────────────────────────────────────────
-    const monthlyBudgets: Array<{ cat: string; amount: number }> = [
+    const monthlyBudgets: Array<{ cat: string; amount: number; scope?: 'PERSONAL' | 'FAMILY' }> = [
       { cat: 'Aluguel',                 amount: 1800 },
       { cat: 'Condomínio',              amount: 450  },
       { cat: 'Energia Elétrica',        amount: 250  },
@@ -408,13 +409,13 @@ async function seedDemo() {
       { cat: 'Transporte Público/App',  amount: 200  },
       { cat: 'Farmácia',                amount: 150  },
       { cat: 'Plano de Saúde',          amount: 500  },
-      { cat: 'Academia/Esportes',       amount: 150  },
+      { cat: 'Academia/Esportes',       amount: 150,  scope: 'PERSONAL' },
       { cat: 'Assinaturas',             amount: 200  },
       { cat: 'Pet: Ração',              amount: 150  },
-      { cat: 'Cursos/Treinamentos',     amount: 250  },
-      { cat: 'Roupas/Acessórios',       amount: 300  },
+      { cat: 'Cursos/Treinamentos',     amount: 250,  scope: 'PERSONAL' },
+      { cat: 'Roupas/Acessórios',       amount: 300,  scope: 'PERSONAL' },
     ];
-    const yearlyBudgets: Array<{ cat: string; amount: number }> = [
+    const yearlyBudgets: Array<{ cat: string; amount: number; scope?: 'PERSONAL' | 'FAMILY' }> = [
       { cat: 'Viagens/Hospedagem', amount: 4000 },
       { cat: 'Seguro Veicular',    amount: 1200 },
       { cat: 'IPVA/Licenciamento', amount: 800  },
@@ -424,17 +425,17 @@ async function seedDemo() {
     for (const b of monthlyBudgets) {
       if (!catMap[b.cat]) continue;
       await client.query(
-        `INSERT INTO budgets (user_id, category_id, amount, period) VALUES ($1, $2, $3, 'MONTHLY')
-         ON CONFLICT (user_id, category_id, period) DO UPDATE SET amount = EXCLUDED.amount`,
-        [joseId, catMap[b.cat], b.amount]
+        `INSERT INTO budgets (user_id, category_id, amount, period, scope) VALUES ($1, $2, $3, 'MONTHLY', $4)
+         ON CONFLICT (user_id, category_id, period) DO UPDATE SET amount = EXCLUDED.amount, scope = EXCLUDED.scope`,
+        [joseId, catMap[b.cat], b.amount, b.scope ?? 'FAMILY']
       );
     }
     for (const b of yearlyBudgets) {
       if (!catMap[b.cat]) continue;
       await client.query(
-        `INSERT INTO budgets (user_id, category_id, amount, period) VALUES ($1, $2, $3, 'YEARLY')
-         ON CONFLICT (user_id, category_id, period) DO UPDATE SET amount = EXCLUDED.amount`,
-        [joseId, catMap[b.cat], b.amount]
+        `INSERT INTO budgets (user_id, category_id, amount, period, scope) VALUES ($1, $2, $3, 'YEARLY', $4)
+         ON CONFLICT (user_id, category_id, period) DO UPDATE SET amount = EXCLUDED.amount, scope = EXCLUDED.scope`,
+        [joseId, catMap[b.cat], b.amount, b.scope ?? 'FAMILY']
       );
     }
 

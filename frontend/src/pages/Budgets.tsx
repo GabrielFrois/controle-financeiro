@@ -14,15 +14,19 @@ export default function Budgets() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { families, activeUserIds, activeLabel } = useFamily();
-  const { user, isAdmin } = useAuth();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [budgets, setBudgets] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
 
+  // Quem não pertence a nenhuma família não tem "família" pra somar — pra essas
+  // pessoas o campo de escopo nem aparece, e toda meta é sempre PERSONAL.
+  const hasFamily = families.length > 0;
+
   // Sempre a família inteira do usuário logado (independe do toggle "Só eu / Família"
-  // do menu lateral) — o GASTO de qualquer meta visível sempre soma a casa toda.
+  // do menu lateral) — usado como universo de gasto para metas com escopo FAMILY.
   const myHouseholdIds = useMemo(() => {
     const ids = new Set<number>();
     if (user) ids.add(user.id);
@@ -31,7 +35,7 @@ export default function Budgets() {
   }, [families, user]);
 
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [form, setForm] = useState({ category_id: '', amount: '', period: 'MONTHLY' });
+  const [form, setForm] = useState({ category_id: '', amount: '', period: 'MONTHLY', scope: 'FAMILY' as 'PERSONAL' | 'FAMILY' });
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [budgetToDelete, setBudgetToDelete] = useState<any>(null);
@@ -64,11 +68,16 @@ export default function Budgets() {
       setForm({
         category_id: budget.category_id,
         amount: budget.amount.toString(),
-        period: budget.period
+        period: budget.period,
+        // Quem não tem família não pode ter meta FAMILY, mesmo que o
+        // registro tenha vindo assim de antes (o backend também garante
+        // isso ao salvar, essa checagem aqui é só pra não mostrar uma
+        // opção que será rebaixada de qualquer forma).
+        scope: budget.scope === 'FAMILY' && hasFamily ? 'FAMILY' : 'PERSONAL',
       });
     } else {
       setEditingId(null);
-      setForm({ category_id: '', amount: '', period: 'MONTHLY' });
+      setForm({ category_id: '', amount: '', period: 'MONTHLY', scope: hasFamily ? 'FAMILY' : 'PERSONAL' });
     }
     setOpen(true);
   };
@@ -76,7 +85,7 @@ export default function Budgets() {
   const handleClose = () => {
     setOpen(false);
     setEditingId(null);
-    setForm({ category_id: '', amount: '', period: 'MONTHLY' });
+    setForm({ category_id: '', amount: '', period: 'MONTHLY', scope: hasFamily ? 'FAMILY' : 'PERSONAL' });
   };
 
   const handleSave = async () => {
@@ -122,7 +131,11 @@ export default function Budgets() {
           const matchCat = Number(t.category_id) === Number(b.category_id);
           const matchYear = d.getUTCFullYear() === curYear;
           const matchMonth = b.period === 'MONTHLY' ? (d.getUTCMonth() + 1) === curMonth : true;
-          return t.type === 'EXPENSE' && matchCat && matchYear && matchMonth;
+          // Meta PERSONAL só soma o gasto do próprio dono; meta FAMILY soma
+          // qualquer membro da família (transactions já vem filtrado para
+          // myHouseholdIds, então aqui não precisamos checar isso de novo).
+          const matchScope = b.scope === 'PERSONAL' ? Number(t.user_id) === Number(b.user_id) : true;
+          return t.type === 'EXPENSE' && matchCat && matchYear && matchMonth && matchScope;
         })
         .reduce((acc, t) => acc + Number(t.amount), 0);
 
@@ -136,7 +149,8 @@ export default function Budgets() {
     if (b.percent > 90) progressColor = theme.palette.error.main;
     else if (b.percent > 70) progressColor = theme.palette.warning.main;
 
-    const canManage = isAdmin || b.user_id === user?.id;
+    // Meta é pessoal: só o próprio dono gerencia, nem admin edita/exclui meta alheia.
+    const canManage = b.user_id === user?.id;
 
     return (
       <Grid size={{ xs: 12, sm: 6, md: 3 }} key={b.id}>
@@ -174,14 +188,24 @@ export default function Budgets() {
               )}
             </Stack>
 
-            <Chip
-              size="small"
-              label={b.user_name}
-              sx={{
-                mb: 1, height: { xs: 18, sm: 20 }, fontSize: { xs: '0.6rem', sm: '0.7rem' }, fontWeight: 700,
-                bgcolor: `${b.user_color}22`, color: b.user_color,
-              }}
-            />
+            <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
+              <Chip
+                size="small"
+                label={b.user_name}
+                sx={{
+                  height: { xs: 18, sm: 20 }, fontSize: { xs: '0.6rem', sm: '0.7rem' }, fontWeight: 700,
+                  bgcolor: `${b.user_color}22`, color: b.user_color,
+                }}
+              />
+              <Chip
+                size="small"
+                label={b.scope === 'FAMILY' ? 'Família' : 'Pessoal'}
+                sx={{
+                  height: { xs: 18, sm: 20 }, fontSize: { xs: '0.6rem', sm: '0.7rem' }, fontWeight: 700,
+                  bgcolor: 'action.hover', color: 'text.secondary',
+                }}
+              />
+            </Stack>
 
             <Box sx={{ my: { xs: 0.75, sm: 1.5 } }}>
               <Typography fontWeight="900" sx={{ fontSize: { xs: '1.05rem', sm: '2.125rem' }, lineHeight: 1.2 }}>
@@ -232,9 +256,11 @@ export default function Budgets() {
           Nova Meta
         </Button>
       </Box>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Visão: {activeLabel} — o gasto de cada meta sempre soma você e sua família.
-      </Typography>
+      {hasFamily && (
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+          Metas "Família" somam o gasto de todos os membros; metas "Pessoal" somam só o dono.
+        </Typography>
+      )}
 
       <Typography variant="h6" fontWeight="900" mb={3} display="flex" alignItems="center" gap={1}>
         <CalendarMonth color="primary" /> MENSAIS
@@ -273,6 +299,23 @@ export default function Budgets() {
               <MenuItem value="MONTHLY">Mensal</MenuItem>
               <MenuItem value="YEARLY">Anual</MenuItem>
             </TextField>
+            {hasFamily ? (
+              <TextField
+                select
+                fullWidth
+                label="Somar gasto de"
+                value={form.scope}
+                onChange={(e) => setForm({ ...form, scope: e.target.value as 'PERSONAL' | 'FAMILY' })}
+                helperText="Família soma o gasto de todos os membros nessa categoria; Pessoal soma só o seu."
+              >
+                <MenuItem value="FAMILY">Toda a família</MenuItem>
+                <MenuItem value="PERSONAL">Só eu (pessoal)</MenuItem>
+              </TextField>
+            ) : (
+              <Typography variant="caption" color="text.secondary">
+                Você não faz parte de nenhuma família, então essa meta é sempre pessoal.
+              </Typography>
+            )}
           </Stack>
         </DialogContent>
         <DialogActions sx={{ p: 3 }}>

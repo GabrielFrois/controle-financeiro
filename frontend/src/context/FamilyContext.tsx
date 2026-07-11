@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import api from '../services/api';
 import { useAuth } from './AuthContext';
@@ -45,20 +45,32 @@ export function FamilyProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => { reload(); }, [reload]);
 
-  const activeUserIds: number[] = (() => {
+  // Recalcula (e só recalcula) quando viewMode/families/user de fato mudam.
+  // Antes, esses arrays/objetos eram recriados em TODO re-render do
+  // FamilyProvider — inclusive quando o re-render vinha de algo alheio à
+  // família, como o toggle de tema no topo da árvore. Como a nova
+  // referência entrava no array de dependências dos useEffect que buscam
+  // transações/investimentos/orçamentos, isso disparava um refetch
+  // completo dos dados a cada troca de tema, dando a sensação de reload.
+  const activeUserIds: number[] = useMemo(() => {
     if (viewMode === 'personal') return user ? [user.id] : [];
     const fam = families.find((f) => f.id === viewMode);
     return fam ? fam.members.map((m) => m.id) : user ? [user.id] : [];
-  })();
+  }, [viewMode, families, user]);
 
-  const activeLabel: string = (() => {
+  const activeLabel: string = useMemo(() => {
     if (viewMode === 'personal') return 'Só eu';
     const fam = families.find((f) => f.id === viewMode);
     return fam ? fam.name : 'Só eu';
-  })();
+  }, [viewMode, families]);
+
+  const value = useMemo(
+    () => ({ families, viewMode, setViewMode, activeUserIds, activeLabel, reload }),
+    [families, viewMode, activeUserIds, activeLabel, reload]
+  );
 
   return (
-    <FamilyContext.Provider value={{ families, viewMode, setViewMode, activeUserIds, activeLabel, reload }}>
+    <FamilyContext.Provider value={value}>
       {children}
     </FamilyContext.Provider>
   );

@@ -1,8 +1,15 @@
 import { Request, Response } from 'express';
 import { query } from '../database/index.js';
+import { resolveAllowedUserIds } from '../utils/familyAccess.js';
 
 export async function getSummary(req: Request, res: Response) {
-  const { month, year, user_ids } = req.query;
+  const { month, year } = req.query;
+
+  // Mesma correção de /transactions e /budgets: sem filtro nenhum, essa rota
+  // somava receita/despesa de TODO usuário no sistema, e mesmo com filtro
+  // não validava se os ids pedidos eram realmente da família de quem
+  // perguntou. Agora a lista é sempre resolvida/validada no servidor.
+  const ids = await resolveAllowedUserIds(req.user!.userId, req.query.user_ids as string | undefined);
 
   const values: unknown[] = [];
   const conditions: string[] = [];
@@ -16,14 +23,9 @@ export async function getSummary(req: Request, res: Response) {
     values.push(year);
   }
 
-  // Filtro por usuários — escopo de visibilidade
-  if (user_ids) {
-    const ids = (user_ids as string).split(',').map(Number).filter((n) => !isNaN(n));
-    if (ids.length > 0) {
-      conditions.push(`t.user_id = ANY($${values.length + 1}::int[])`);
-      values.push(ids);
-    }
-  }
+  // Filtro por usuários — escopo de visibilidade (sempre presente agora)
+  conditions.push(`t.user_id = ANY($${values.length + 1}::int[])`);
+  values.push(ids);
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 

@@ -116,6 +116,11 @@ export const createBudgetSchema = z.object({
   category_id: z.coerce.number().int().positive(),
   amount:      z.coerce.number().positive(),
   period:      z.string().min(1, 'Período obrigatório.'),
+  // 'FAMILY' soma os gastos de toda a família do dono da meta; 'PERSONAL'
+  // soma só os gastos do próprio dono. Quem não tem família é sempre
+  // rebaixado para PERSONAL no controller, então o default aqui é só um
+  // fallback caso o campo não seja enviado.
+  scope:       z.enum(['PERSONAL', 'FAMILY']).default('FAMILY').optional(),
 });
 
 export const updateAssetPriceSchema = z.object({

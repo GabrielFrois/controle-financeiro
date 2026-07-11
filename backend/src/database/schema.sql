@@ -104,11 +104,14 @@ CREATE TABLE IF NOT EXISTS family_members (
     PRIMARY KEY (family_id, user_id)
 );
 
-CREATE TABLE IF NOT EXISTS login_ip_attempts (
-    ip           VARCHAR(64) PRIMARY KEY,
-    count        INTEGER     NOT NULL DEFAULT 1,
-    window_start TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+-- Escopo da meta: 'PERSONAL' soma apenas os gastos do próprio dono da meta;
+-- 'FAMILY' soma os gastos de toda a família do dono. Quem não pertence a
+-- nenhuma família só pode ter metas PERSONAL (garantido pelo backend).
+-- Default é 'FAMILY' para preservar o comportamento de metas criadas antes
+-- dessa coluna existir, quando o gasto de qualquer meta sempre somava a
+-- família inteira do dono.
+ALTER TABLE budgets ADD COLUMN IF NOT EXISTS scope VARCHAR(10) NOT NULL DEFAULT 'FAMILY'
+    CHECK (scope IN ('PERSONAL', 'FAMILY'));
 
 CREATE INDEX IF NOT EXISTS idx_transactions_date     ON transactions(date);
 CREATE INDEX IF NOT EXISTS idx_transactions_user_id  ON transactions(user_id);

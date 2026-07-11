@@ -13,7 +13,13 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    // Um 401 na própria tentativa de login (usuário/senha errados, conta
+    // bloqueada) é um erro de CREDENCIAIS, não de SESSÃO expirada — não deve
+    // disparar o redirect/reload global. O reload apagava o formulário antes
+    // do componente de Login conseguir exibir a mensagem de erro, dando a
+    // impressão de que os campos eram "limpos" em vez de mostrar o erro.
+    const isLoginRequest = error.config?.url?.includes('/auth/login');
+    if (error.response?.status === 401 && !isLoginRequest) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       window.location.href = '/login';

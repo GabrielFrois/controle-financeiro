@@ -2,8 +2,9 @@ import { Request, Response } from 'express';
 import { randomUUID } from 'crypto';
 import { query } from '../database/index.js';
 import { checkCardLimit } from '../utils/creditCard.js';
+import { resolveAllowedUserIds } from '../utils/familyAccess.js';
 
-// helpers
+// ── helpers de asset ──────────────────────────────────────────────────────
 
 async function upsertAsset(ticker: string, investmentType?: string): Promise<number | null> {
   if (!ticker || ticker.trim() === '') return null;
@@ -61,19 +62,92 @@ function buildInstallmentDate(
   return d;
 }
 
-// handlers
+// ── helpers de posse / limite (antes duplicados em create/update/updateGroup) ──
+//
+// As três rotas de escrita (criar, editar uma transação, editar um grupo de
+// parcelas) repetiam a mesma checagem de posse do método de pagamento, a
+// mesma checagem de posse do cartão da fatura e a mesma checagem de limite
+// de crédito. Isso foi extraído para as funções abaixo para que as três
+// cópias não pudessem divergir silenciosamente com o tempo.
+
+interface OwnershipError {
+  status: number;
+  error: string;
+}
+
+// Métodos padrão (user_id NULL) são compartilhados: qualquer usuário pode
+// usá-los. Cartões de crédito são privados: só o dono pode lançar/editar uma
+// transação usando o próprio cartão — mesmo admin não pode usar o cartão de
+// outro usuário ao lançar em nome dele.
+async function resolveOwnedPaymentMethod(
+  paymentMethodId: number,
+  requesterId: number
+): Promise<{ method: any } | { error: OwnershipError }> {
+  const methodRes = await query(
+    'SELECT * FROM payment_methods WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)',
+    [paymentMethodId, requesterId]
+  );
+  if (methodRes.rowCount === 0) {
+    return { error: { status: 403, error: 'Método de pagamento não encontrado ou não pertence a você.' } };
+  }
+  return { method: methodRes.rows[0] };
+}
+
+function isOwnershipError(x: { method: any } | { error: OwnershipError }): x is { error: OwnershipError } {
+  return 'error' in x;
+}
+
+// Pagamento de fatura sempre se refere a um cartão real, que é sempre
+// privado — aqui não faz sentido aceitar user_id IS NULL.
+async function assertOwnsInvoiceCard(
+  paidCardId: number,
+  requesterId: number
+): Promise<OwnershipError | null> {
+  const cardOwnCheck = await query(
+    'SELECT 1 FROM payment_methods WHERE id = $1 AND user_id = $2',
+    [paidCardId, requesterId]
+  );
+  if (cardOwnCheck.rowCount === 0) {
+    return { status: 403, error: 'O cartão desta fatura não pertence a você.' };
+  }
+  return null;
+}
+
+// Como um cartão real: o valor TOTAL da compra é comprometido do limite no
+// ato da compra, mesmo que seja parcelada — não apenas a parcela do mês
+// corrente. Pagamentos de fatura (isInvoicePayment) não passam por aqui,
+// pois são debitados de uma conta/carteira, não do próprio cartão.
+async function assertWithinCreditLimit(
+  method: { name: string; closing_day: number | null; card_limit: number | null },
+  paymentMethodId: number,
+  type: string,
+  isInvoicePayment: boolean,
+  amount: number,
+  excludeIds: number[] = []
+): Promise<OwnershipError | null> {
+  const isCreditCardPurchase = type === 'EXPENSE' && !isInvoicePayment && method.closing_day != null;
+  if (!isCreditCardPurchase) return null;
+
+  const limitCheck = await checkCardLimit(method.card_limit, paymentMethodId, amount, excludeIds);
+  if (!limitCheck.ok) {
+    return {
+      status: 400,
+      error: `Limite insuficiente no cartão "${method.name}". Disponível: R$ ${limitCheck.availableLimit!.toFixed(2)}, valor: R$ ${amount.toFixed(2)}.`,
+    };
+  }
+  return null;
+}
+
+// ── handlers ───────────────────────────────────────────────────────────────
 
 export async function listTransactions(req: Request, res: Response) {
   try {
-    const rawIds = req.query.user_ids as string | undefined;
-    const userIds = rawIds
-      ? rawIds.split(',').map(Number).filter((n) => !isNaN(n))
-      : null;
-
-    const whereClause = userIds && userIds.length > 0
-      ? 'WHERE t.user_id = ANY($1::int[])'
-      : '';
-    const params = userIds && userIds.length > 0 ? [userIds] : [];
+    // Antes: sem `user_ids` na query a cláusula WHERE sumia inteira, e
+    // qualquer usuário autenticado que chamasse a rota sem esse parâmetro
+    // (ou com o id de outra pessoa) via as transações de todo mundo no
+    // sistema. Agora a lista é sempre validada contra a própria família de
+    // quem está logado — nunca "todo mundo", e nunca alguém fora da família.
+    const userIds = await resolveAllowedUserIds(req.user!.userId, req.query.user_ids as string | undefined);
 
     const sql = `
       SELECT
@@ -91,10 +165,10 @@ export async function listTransactions(req: Request, res: Response) {
       LEFT JOIN categories      c ON t.category_id       = c.id
       LEFT JOIN payment_methods p ON t.payment_method_id = p.id
       LEFT JOIN assets          a ON t.asset_id          = a.id
-      ${whereClause}
+      WHERE t.user_id = ANY($1::int[])
       ORDER BY t.date DESC, t.id DESC
     `;
-    const result = await query(sql, params);
+    const result = await query(sql, [userIds]);
     res.json(result.rows);
   } catch {
     res.status(500).json({ error: 'Erro ao buscar extrato' });
@@ -116,46 +190,21 @@ export async function createTransaction(req: Request, res: Response) {
   const user_id = isAdmin ? req.body.user_id : req.user!.userId;
 
   try {
-    // ── Checagem de posse ────────────────────────────────────────────────────
-    // Métodos padrão (user_id NULL) são compartilhados: qualquer usuário pode
-    // usá-los. Cartões de crédito são privados: só o dono pode lançar uma
-    // transação usando o próprio cartão — mesmo admin não pode usar o cartão
-    // de outro usuário ao lançar em nome dele.
-    const methodRes = await query(
-      'SELECT * FROM payment_methods WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)',
-      [payment_method_id, req.user!.userId]
-    );
-    if (methodRes.rowCount === 0) {
-      return res.status(403).json({ error: 'Método de pagamento não encontrado ou não pertence a você.' });
+    const resolved = await resolveOwnedPaymentMethod(payment_method_id, req.user!.userId);
+    if (isOwnershipError(resolved)) {
+      return res.status(resolved.error.status).json({ error: resolved.error.error });
     }
-    const method = methodRes.rows[0];
+    const method = resolved.method;
 
     if (is_invoice_payment && paid_card_id) {
-      // Pagamento de fatura sempre se refere a um cartão real, que é sempre
-      // privado — aqui não faz sentido aceitar user_id IS NULL.
-      const cardOwnCheck = await query(
-        'SELECT 1 FROM payment_methods WHERE id = $1 AND user_id = $2',
-        [paid_card_id, req.user!.userId]
-      );
-      if (cardOwnCheck.rowCount === 0) {
-        return res.status(403).json({ error: 'O cartão desta fatura não pertence a você.' });
-      }
+      const invoiceError = await assertOwnsInvoiceCard(paid_card_id, req.user!.userId);
+      if (invoiceError) return res.status(invoiceError.status).json({ error: invoiceError.error });
     }
 
-    // ── Checagem de limite ──────────────────────────────────────────────────
-    // Como um cartão real: o valor TOTAL da compra é comprometido do limite
-    // no ato da compra, mesmo que seja parcelada — não apenas a parcela do
-    // mês corrente. Pagamentos de fatura (is_invoice_payment) não passam por
-    // aqui, pois são debitados de uma conta/carteira, não do próprio cartão.
-    const isCreditCardPurchase = type === 'EXPENSE' && !is_invoice_payment && method.closing_day != null;
-    if (isCreditCardPurchase) {
-      const limitCheck = await checkCardLimit(method.card_limit, payment_method_id, Number(amount));
-      if (!limitCheck.ok) {
-        return res.status(400).json({
-          error: `Limite insuficiente no cartão "${method.name}". Disponível: R$ ${limitCheck.availableLimit!.toFixed(2)}, valor da compra: R$ ${Number(amount).toFixed(2)}.`,
-        });
-      }
-    }
+    const limitError = await assertWithinCreditLimit(
+      method, payment_method_id, type, !!is_invoice_payment, Number(amount)
+    );
+    if (limitError) return res.status(limitError.status).json({ error: limitError.error });
 
     const assetId = await upsertAsset(asset_ticker, investment_type);
 
@@ -221,40 +270,23 @@ export async function updateTransaction(req: Request, res: Response) {
   const user_id = isAdmin ? req.body.user_id : req.user!.userId;
 
   try {
-    // ── Checagem de posse ────────────────────────────────────────────────────
-    // Métodos padrão (user_id NULL) são compartilhados; cartões são privados.
-    const methodRes = await query(
-      'SELECT * FROM payment_methods WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)',
-      [payment_method_id, req.user!.userId]
-    );
-    if (methodRes.rowCount === 0) {
-      return res.status(403).json({ error: 'Método de pagamento não encontrado ou não pertence a você.' });
+    const resolved = await resolveOwnedPaymentMethod(payment_method_id, req.user!.userId);
+    if (isOwnershipError(resolved)) {
+      return res.status(resolved.error.status).json({ error: resolved.error.error });
     }
-    const method = methodRes.rows[0];
+    const method = resolved.method;
 
     if (is_invoice_payment && paid_card_id) {
-      // Pagamento de fatura sempre se refere a um cartão real (sempre privado).
-      const cardOwnCheck = await query(
-        'SELECT 1 FROM payment_methods WHERE id = $1 AND user_id = $2',
-        [paid_card_id, req.user!.userId]
-      );
-      if (cardOwnCheck.rowCount === 0) {
-        return res.status(403).json({ error: 'O cartão desta fatura não pertence a você.' });
-      }
+      const invoiceError = await assertOwnsInvoiceCard(paid_card_id, req.user!.userId);
+      if (invoiceError) return res.status(invoiceError.status).json({ error: invoiceError.error });
     }
 
-    // ── Checagem de limite ──────────────────────────────────────────────────
     // Exclui a própria transação (valor antigo) do cálculo do saldo
     // comprometido antes de validar o novo valor.
-    const isCreditCardPurchase = type === 'EXPENSE' && !is_invoice_payment && method?.closing_day != null;
-    if (isCreditCardPurchase) {
-      const limitCheck = await checkCardLimit(method.card_limit, payment_method_id, Number(amount), [Number(id)]);
-      if (!limitCheck.ok) {
-        return res.status(400).json({
-          error: `Limite insuficiente no cartão "${method.name}". Disponível: R$ ${limitCheck.availableLimit!.toFixed(2)}, valor informado: R$ ${Number(amount).toFixed(2)}.`,
-        });
-      }
-    }
+    const limitError = await assertWithinCreditLimit(
+      method, payment_method_id, type, !!is_invoice_payment, Number(amount), [Number(id)]
+    );
+    if (limitError) return res.status(limitError.status).json({ error: limitError.error });
 
     // Nota: o clause de ownership referencia o parâmetro que vem DEPOIS do
     // id ($16), não o próprio id ($15) — do contrário a comparação seria
@@ -313,15 +345,12 @@ export async function updateTransactionGroup(req: Request, res: Response) {
     // grupo), e essas parcelas futuras devem ser excluídas do saldo
     // comprometido atual do cartão antes de validar o novo valor.
     if (type === 'EXPENSE' && payment_method_id) {
-      // Métodos padrão (user_id NULL) são compartilhados; cartões são privados.
-      const methodRes = await query(
-        'SELECT * FROM payment_methods WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)',
-        [payment_method_id, req.user!.userId]
-      );
-      if (methodRes.rowCount === 0) {
-        return res.status(403).json({ error: 'Método de pagamento não encontrado ou não pertence a você.' });
+      const resolved = await resolveOwnedPaymentMethod(payment_method_id, req.user!.userId);
+      if (isOwnershipError(resolved)) {
+        return res.status(resolved.error.status).json({ error: resolved.error.error });
       }
-      const method = methodRes.rows[0];
+      const method = resolved.method;
+
       if (method.closing_day != null) {
         const futureRes = await query(
           `SELECT id FROM transactions WHERE installment_group_id = $1 AND date >= $2`,
@@ -330,12 +359,10 @@ export async function updateTransactionGroup(req: Request, res: Response) {
         const futureIds: number[] = futureRes.rows.map((r: any) => r.id);
         const newTotalForFuture = Number(amount) * Math.max(1, futureIds.length);
 
-        const limitCheck = await checkCardLimit(method.card_limit, payment_method_id, newTotalForFuture, futureIds);
-        if (!limitCheck.ok) {
-          return res.status(400).json({
-            error: `Limite insuficiente no cartão "${method.name}". Disponível: R$ ${limitCheck.availableLimit!.toFixed(2)}, valor total das parcelas futuras: R$ ${newTotalForFuture.toFixed(2)}.`,
-          });
-        }
+        const limitError = await assertWithinCreditLimit(
+          method, payment_method_id, type, false, newTotalForFuture, futureIds
+        );
+        if (limitError) return res.status(limitError.status).json({ error: limitError.error });
       }
     }
 

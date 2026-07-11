@@ -13,7 +13,7 @@ import api from '../services/api';
 export default function Budgets() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-  const { families, activeUserIds, activeLabel } = useFamily();
+  const { families, activeUserIds } = useFamily();
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [transactions, setTransactions] = useState<any[]>([]);

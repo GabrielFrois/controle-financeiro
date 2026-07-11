@@ -22,6 +22,17 @@ export function useTransactionAnalytics(
       const { categoryFilter, userFilter, typeFilter } = filters;
       const today = new Date();
 
+      // Mesma regra do Dashboard/Resumo/Relatórios: uma compra no cartão de
+      // crédito só deve pesar no fluxo de caixa (Patrimônio, Economia, Total
+      // no período) quando a fatura dela for paga — antes disso o dinheiro
+      // ainda não saiu de fato da conta.
+      // NÃO aplicamos essa regra no gráfico de evolução de despesas (lineData)
+      // nem no Top 5: esses dois mostram padrão/comportamento de gasto (quando
+      // a compra foi feita), não fluxo de caixa — filtrar ali só atrasaria a
+      // compra no gráfico até o fechamento da fatura, sem gerar nenhum insight.
+      const isUnpaidCardPurchase = (t: any) =>
+        t.type === 'EXPENSE' && !t.is_invoice_payment && t.payment_method_closing_day != null;
+
       // ── Trend data (12-month rolling window) ──────────────────────────────
       const maxFutureMonthDiff = transactions.reduce((max, t) => {
         const tDate = new Date(t.date.split('T')[0] + 'T12:00:00');
@@ -38,15 +49,16 @@ export function useTransactionAnalytics(
           const tDate = new Date(t.date.split('T')[0] + 'T12:00:00');
           return tDate < new Date(today.getFullYear(), today.getMonth() + startOffset, 1);
         })
+        .filter((t) => !isUnpaidCardPurchase(t))
         .reduce((acc, t) => (t.type === 'INCOME' ? acc + Number(t.amount) : acc - Number(t.amount)), 0);
 
       const trendData: any[] = [];
       for (let i = startOffset; i <= endOffset; i++) {
         const d         = new Date(today.getFullYear(), today.getMonth() + i, 1);
         const monthYear = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}`;
-        const monthTrans = transactions.filter(
-          (t) => t.date?.startsWith(monthYear) && (trendUserFilter === 'Todos' || t.user_name === trendUserFilter)
-        );
+        const monthTrans = transactions
+          .filter((t) => t.date?.startsWith(monthYear) && (trendUserFilter === 'Todos' || t.user_name === trendUserFilter))
+          .filter((t) => !isUnpaidCardPurchase(t));
         const inc = monthTrans.filter((t) => t.type === 'INCOME').reduce((a, b) => a + Number(b.amount), 0);
         const exp = monthTrans.filter((t) => t.type === 'EXPENSE').reduce((a, b) => a + Number(b.amount), 0);
         runningPatrimony += inc - exp;
@@ -103,15 +115,20 @@ export function useTransactionAnalytics(
           evolutionMap[sortKey].valor += Number(t.amount);
         });
 
-      // ── Aggregates for current period ─────────────────────────────────────
-      const listExpense = filteredTransactions
+      // ── Aggregates for current period (fluxo de caixa: total/economia) ────
+      const cashFlowTransactions = filteredTransactions.filter((t) => !isUnpaidCardPurchase(t));
+
+      const listExpense = cashFlowTransactions
         .filter((t) => t.type === 'EXPENSE')
         .reduce((a, b) => a + Number(b.amount), 0);
 
-      const listIncome = filteredTransactions
+      const listIncome = cashFlowTransactions
         .filter((t) => t.type === 'INCOME')
         .reduce((a, b) => a + Number(b.amount), 0);
 
+      // Top 5 maiores gastos: mostra padrão de gasto (quando a compra foi
+      // feita), não fluxo de caixa — por isso conta a partir de todas as
+      // transações filtradas, sem esperar a fatura ser paga.
       const groupedExpensesMap = filteredTransactions
         .filter((t) => t.type === 'EXPENSE')
         .reduce<Record<string, any>>((acc, t) => {

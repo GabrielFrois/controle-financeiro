@@ -7,12 +7,12 @@ export async function getSummary(req: Request, res: Response) {
   const values: unknown[] = [];
   const conditions: string[] = [];
 
-  // Filtro por período
+  // Filtro por período (sempre referenciando a tabela via alias t)
   if (month && year) {
-    conditions.push(`EXTRACT(MONTH FROM date) = $${values.length + 1} AND EXTRACT(YEAR FROM date) = $${values.length + 2}`);
+    conditions.push(`EXTRACT(MONTH FROM t.date) = $${values.length + 1} AND EXTRACT(YEAR FROM t.date) = $${values.length + 2}`);
     values.push(month, year);
   } else if (year) {
-    conditions.push(`EXTRACT(YEAR FROM date) = $${values.length + 1}`);
+    conditions.push(`EXTRACT(YEAR FROM t.date) = $${values.length + 1}`);
     values.push(year);
   }
 
@@ -20,18 +20,30 @@ export async function getSummary(req: Request, res: Response) {
   if (user_ids) {
     const ids = (user_ids as string).split(',').map(Number).filter((n) => !isNaN(n));
     if (ids.length > 0) {
-      conditions.push(`user_id = ANY($${values.length + 1}::int[])`);
+      conditions.push(`t.user_id = ANY($${values.length + 1}::int[])`);
       values.push(ids);
     }
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
+  // Uma compra no cartão de crédito (payment_methods.closing_day != null) só
+  // deve impactar receitas/despesas quando a fatura dela for paga
+  // (is_invoice_payment = TRUE), não no momento da compra — assim como no
+  // extrato bancário real, o dinheiro só sai quando a fatura é quitada.
   const sql = `
     SELECT
-      SUM(CASE WHEN type = 'INCOME'  THEN amount ELSE 0 END) AS total_income,
-      SUM(CASE WHEN type = 'EXPENSE' THEN amount ELSE 0 END) AS total_expense
-    FROM transactions
+      SUM(CASE WHEN t.type = 'INCOME' THEN t.amount ELSE 0 END) AS total_income,
+      SUM(
+        CASE
+          WHEN t.type = 'EXPENSE'
+           AND NOT (pm.closing_day IS NOT NULL AND t.is_invoice_payment = FALSE)
+          THEN t.amount
+          ELSE 0
+        END
+      ) AS total_expense
+    FROM transactions t
+    LEFT JOIN payment_methods pm ON t.payment_method_id = pm.id
     ${where}
   `;
 

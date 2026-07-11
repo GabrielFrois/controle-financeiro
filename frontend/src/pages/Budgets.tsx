@@ -139,7 +139,7 @@ export default function Budgets() {
     const canManage = isAdmin || b.user_id === user?.id;
 
     return (
-      <Grid size={{ xs: 6, sm: 6, md: 3 }} key={b.id}>
+      <Grid size={{ xs: 12, sm: 6, md: 3 }} key={b.id}>
         <Paper sx={{ 
           p: { xs: 1.5, sm: 3 }, 
           borderRadius: 5, 
@@ -158,8 +158,8 @@ export default function Budgets() {
           }
         }}>
           <Box>
-            <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1} gap={0.5}>
-              <Typography variant="subtitle2" color="text.secondary" fontWeight="900" noWrap sx={{ textTransform: 'uppercase', fontSize: { xs: '0.7rem', sm: '0.875rem' } }}>
+            <Stack direction="row" justifyContent="space-between" alignItems="flex-start" mb={1} gap={0.5}>
+              <Typography variant="subtitle2" color="text.secondary" fontWeight="900" sx={{ textTransform: 'uppercase', fontSize: { xs: '0.7rem', sm: '0.875rem' }, lineHeight: 1.3 }}>
                 {b.category_name || 'Categoria'} 
               </Typography>
               {canManage && (

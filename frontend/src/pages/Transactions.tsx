@@ -560,7 +560,7 @@ export default function Transactions() {
               </Typography>
               <Box sx={{ height: { xs: 280, sm: 400 } }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={analyticsData.trendData} margin={{ left: isMobile ? -20 : 0, right: 8 }}>
+                  <BarChart data={analyticsData.trendData} margin={{ left: isMobile ? 4 : 0, right: 8 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.3} />
                     <XAxis dataKey="name" tick={{ fontSize: isMobile ? 9 : 11 }} interval={isMobile ? 1 : 0} />
                     <YAxis hide />

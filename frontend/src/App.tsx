@@ -4,7 +4,7 @@ import {
   ThemeProvider, createTheme, CssBaseline, Box,
   AppBar, Toolbar, IconButton, Typography, useMediaQuery,
 } from '@mui/material';
-import { Menu as MenuIcon } from '@mui/icons-material';
+import { Menu as MenuIcon, Brightness4, Brightness7 } from '@mui/icons-material';
 import { AuthProvider } from './context/AuthContext';
 import { FamilyProvider } from './context/FamilyContext';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -31,13 +31,18 @@ function AppLayout({ toggleTheme, mode }: { toggleTheme: () => void; mode: 'ligh
           elevation={1}
           sx={{ display: { xs: 'block', md: 'none' }, zIndex: (t) => t.zIndex.drawer + 1 }}
         >
-          <Toolbar>
-            <IconButton edge="start" onClick={() => setMobileOpen(true)} sx={{ mr: 2 }}>
-              <MenuIcon />
+          <Toolbar sx={{ display: 'flex', justifyContent: 'space-between' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              <IconButton edge="start" onClick={() => setMobileOpen(true)} sx={{ mr: 2 }}>
+                <MenuIcon />
+              </IconButton>
+              <Typography variant="h6" fontWeight="bold" color="primary" noWrap>
+                ZeloFy
+              </Typography>
+            </Box>
+            <IconButton onClick={toggleTheme}>
+              {mode === 'dark' ? <Brightness7 /> : <Brightness4 />}
             </IconButton>
-            <Typography variant="h6" fontWeight="bold" color="primary" noWrap>
-              ZeloFy
-            </Typography>
           </Toolbar>
         </AppBar>
       )}

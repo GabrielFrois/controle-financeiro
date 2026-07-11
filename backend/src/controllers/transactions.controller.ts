@@ -83,6 +83,7 @@ export async function listTransactions(req: Request, res: Response) {
         COALESCE(c.name,  'Inativa') AS category_name,
         COALESCE(c.color, '#9e9e9e') AS category_color,
         COALESCE(p.name,  'Pix')     AS payment_method_name,
+        p.closing_day  AS payment_method_closing_day,
         a.ticker       AS asset_ticker,
         a.manual_price
       FROM transactions t

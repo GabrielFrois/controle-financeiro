@@ -22,7 +22,7 @@ export default function Reports() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { activeUserIds, activeLabel } = useFamily();
-  const [loading, setLoading]       = useState(true);
+  const [loading, setLoading] = useState(true);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
 
@@ -32,14 +32,14 @@ export default function Reports() {
     oneYearAgo.setFullYear(now.getFullYear() - 1);
     return {
       start: oneYearAgo.toISOString().split('T')[0],
-      end:   now.toISOString().split('T')[0],
+      end: now.toISOString().split('T')[0],
     };
   };
 
   const presets = getPresets();
-  const [startDate, setStartDate]         = useState(presets.start);
-  const [endDate, setEndDate]             = useState(presets.end);
-  const [typeFilter, setTypeFilter]       = useState('Todos');
+  const [startDate, setStartDate] = useState(presets.start);
+  const [endDate, setEndDate] = useState(presets.end);
+  const [typeFilter, setTypeFilter] = useState('Todos');
   const [categoryFilter, setCategoryFilter] = useState('Todas');
 
   const fetchData = useCallback(async () => {
@@ -65,24 +65,33 @@ export default function Reports() {
 
   const filteredData = useMemo(() => {
     return transactions.filter((t) => {
-      const tDate       = t.date.split('T')[0];
-      const matchType   = typeFilter     === 'Todos'  || t.type          === typeFilter;
-      const matchCat    = categoryFilter === 'Todas'  || t.category_name === categoryFilter;
+      const tDate = t.date.split('T')[0];
+      const matchType = typeFilter === 'Todos' || t.type === typeFilter;
+      const matchCat = categoryFilter === 'Todas' || t.category_name === categoryFilter;
       return tDate >= startDate && tDate <= endDate && matchType && matchCat;
     });
   }, [transactions, startDate, endDate, typeFilter, categoryFilter]);
 
   const stats = useMemo(() => {
-    const income  = filteredData.filter((t) => t.type === 'INCOME').reduce((acc, t) => acc + Number(t.amount), 0);
-    const expense = filteredData.filter((t) => t.type === 'EXPENSE').reduce((acc, t) => acc + Number(t.amount), 0);
+    // Mesma regra do Dashboard/Resumo: uma compra no cartão de crédito só
+    // deve contar como despesa (e entrar nos agrupamentos por categoria/
+    // movimentação) quando a fatura dela for paga — antes disso o dinheiro
+    // ainda não saiu de fato da conta.
+    const isUnpaidCardPurchase = (t: any) =>
+      t.type === 'EXPENSE' && !t.is_invoice_payment && t.payment_method_closing_day != null;
 
-    const categoriesMap = filteredData.reduce((acc: any, t) => {
+    const countable = filteredData.filter((t) => !isUnpaidCardPurchase(t));
+
+    const income = countable.filter((t) => t.type === 'INCOME').reduce((acc, t) => acc + Number(t.amount), 0);
+    const expense = countable.filter((t) => t.type === 'EXPENSE').reduce((acc, t) => acc + Number(t.amount), 0);
+
+    const categoriesMap = countable.reduce((acc: any, t) => {
       if (!acc[t.category_name]) acc[t.category_name] = { name: t.category_name, total: 0, type: t.type };
       acc[t.category_name].total += Number(t.amount);
       return acc;
     }, {});
 
-    const groupedMovements = filteredData.reduce((acc: any, t) => {
+    const groupedMovements = countable.reduce((acc: any, t) => {
       const key = `${t.description}-${t.category_name}`;
       if (!acc[key]) acc[key] = { description: t.description, category: t.category_name, total: 0, type: t.type };
       acc[key].total += Number(t.amount);
@@ -95,9 +104,9 @@ export default function Reports() {
     return {
       income, expense, balance: income - expense, count: filteredData.length,
       categories: sortedCats.slice(0, 8),
-      movements:  sortedMovs.slice(0, 8),
+      movements: sortedMovs.slice(0, 8),
       fullCategories: sortedCats,
-      fullMovements:  sortedMovs,
+      fullMovements: sortedMovs,
     };
   }, [filteredData]);
 
@@ -178,10 +187,10 @@ export default function Reports() {
 
       {/* KPI CARDS */}
       <Grid container spacing={3} sx={{ mb: 4 }} justifyContent="center" className="no-print">
-        <Grid size={{ xs: 6, sm: 6, md: 3 }}><KPICard title="Entradas"        value={formatCurrency(stats.income)}   icon={<TrendingUp />}         color={theme.palette.success.main} /></Grid>
-        <Grid size={{ xs: 6, sm: 6, md: 3 }}><KPICard title="Saídas"          value={formatCurrency(stats.expense)}  icon={<TrendingDown />}        color={theme.palette.error.main} /></Grid>
+        <Grid size={{ xs: 6, sm: 6, md: 3 }}><KPICard title="Entradas" value={formatCurrency(stats.income)} icon={<TrendingUp />} color={theme.palette.success.main} /></Grid>
+        <Grid size={{ xs: 6, sm: 6, md: 3 }}><KPICard title="Saídas" value={formatCurrency(stats.expense)} icon={<TrendingDown />} color={theme.palette.error.main} /></Grid>
         <Grid size={{ xs: 6, sm: 6, md: 3 }}><KPICard title="Saldo do Período" value={formatCurrency(stats.balance)} icon={<AccountBalanceWallet />} color={theme.palette.primary.main} /></Grid>
-        <Grid size={{ xs: 6, sm: 6, md: 3 }}><KPICard title="Lançamentos"     value={stats.count}                    icon={<ReceiptLong />}         color="#607d8b" /></Grid>
+        <Grid size={{ xs: 6, sm: 6, md: 3 }}><KPICard title="Lançamentos" value={stats.count} icon={<ReceiptLong />} color="#607d8b" /></Grid>
       </Grid>
 
       {/* TABELAS */}
@@ -286,10 +295,10 @@ export default function Reports() {
 
         <Grid container spacing={0} sx={{ mb: 6, border: '1px solid #000', borderRadius: 2, overflow: 'hidden' }}>
           {[
-            { label: 'RECEITAS TOTAIS', val: stats.income,   color: '#2e7d32' },
-            { label: 'DESPESAS TOTAIS', val: stats.expense,  color: '#d32f2f' },
-            { label: 'SALDO FINAL',     val: stats.balance,  color: '#000'    },
-            { label: 'LANÇAMENTOS',     val: stats.count,    color: '#424242' },
+            { label: 'RECEITAS TOTAIS', val: stats.income, color: '#2e7d32' },
+            { label: 'DESPESAS TOTAIS', val: stats.expense, color: '#d32f2f' },
+            { label: 'SALDO FINAL', val: stats.balance, color: '#000' },
+            { label: 'LANÇAMENTOS', val: stats.count, color: '#424242' },
           ].map((item, i) => (
             <Grid size={3} key={i} sx={{ p: 3, textAlign: 'center', borderRight: i < 3 ? '1px solid #000' : 'none', bgcolor: '#fff' }}>
               <Typography variant="caption" fontWeight="900" color="text.secondary" sx={{ display: 'block', mb: 1, letterSpacing: 1 }}>{item.label}</Typography>

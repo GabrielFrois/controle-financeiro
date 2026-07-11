@@ -360,22 +360,25 @@ export default function Management() {
   return (
     <Box sx={{ p: { xs: 2, sm: 3, md: 4 }, maxWidth: '1200px', margin: '0 auto' }}>
       <Box sx={{ mb: { xs: 2, md: 4 }, display: 'flex', alignItems: 'center' }}>
-        <Typography variant="h4" fontWeight={900} sx={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: { xs: '1.5rem', sm: '2.125rem' } }}>
-          <Settings fontSize={isMobile ? 'medium' : 'large'} color="primary" /> Gestão de Configurações
+        <Typography variant="h4" fontWeight={900} sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, fontSize: { xs: '1.5rem', sm: '2.125rem' } }}>
+          <Settings fontSize={isMobile ? 'medium' : 'large'} color="primary" sx={{ mt: { xs: 0.5, sm: 0.75 }, flexShrink: 0 }} />
+          <Box component="span">Gestão de Configurações</Box>
         </Typography>
       </Box>
 
-      <Paper sx={{ mb: { xs: 2, md: 4 }, borderRadius: 4 }}>
+      <Box sx={{
+        borderBottom: 1, borderColor: 'divider', mb: { xs: 2, md: 4 },
+      }}>
         <Tabs
           value={tab} onChange={(_, v) => setTab(v)}
-          centered={!isMobile}
-          variant={isMobile ? 'scrollable' : 'fullWidth'}
+          variant={isMobile ? 'scrollable' : 'standard'}
           scrollButtons={isMobile ? 'auto' : undefined}
           allowScrollButtonsMobile
+          sx={{ minHeight: 44 }}
         >
-          {tabs.map((t, i) => <Tab key={i} icon={t.icon} label={t.label} />)}
+          {tabs.map((t, i) => <Tab key={i} icon={t.icon} iconPosition="start" label={t.label} sx={{ minHeight: 44 }} />)}
         </Tabs>
-      </Paper>
+      </Box>
 
       {/* ── ABA 0: MEU PERFIL ─────────────────────────────────────────────── */}
       {tab === 0 && (

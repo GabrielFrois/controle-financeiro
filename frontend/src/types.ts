@@ -30,6 +30,7 @@ export interface Transaction {
   user_color: string;
   payment_method_id: number;
   payment_method_name: string;
+  payment_method_closing_day: number | null;
   installment_group_id: string | null;
   asset_ticker: string | null;
   quantity: number | null;

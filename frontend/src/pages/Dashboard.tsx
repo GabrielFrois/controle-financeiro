@@ -72,9 +72,16 @@ export default function Dashboard() {
     setSummary(sumRes.data);
     const allTransactions = transRes.data;
 
+    // Uma compra no cartão de crédito só deve pesar no saldo quando a fatura
+    // dela for paga (is_invoice_payment = true) — antes disso o dinheiro
+    // ainda não saiu de fato da conta. payment_method_closing_day só existe
+    // (não é null) para métodos de pagamento que são cartão de crédito.
+    const isUnpaidCardPurchase = (t: any) =>
+      t.type === 'EXPENSE' && !t.is_invoice_payment && t.payment_method_closing_day != null;
+
     // --- CÁLCULO DO SALDO ---
     const accumulated = allTransactions
-      .filter((t: any) => t.date <= todayStr)
+      .filter((t: any) => t.date <= todayStr && !isUnpaidCardPurchase(t))
       .reduce((acc: number, t: any) => 
         t.type === 'INCOME' ? acc + parseFloat(t.amount) : acc - parseFloat(t.amount), 0
       );
@@ -106,7 +113,7 @@ export default function Dashboard() {
     setRecentTransactions(filteredTransactions.slice(0, 5));
 
     const expensesByCategory = filteredTransactions
-      .filter((t: any) => t.type === 'EXPENSE')
+      .filter((t: any) => t.type === 'EXPENSE' && !isUnpaidCardPurchase(t))
       .reduce((acc: any, curr: any) => {
         acc[curr.category_name] = (acc[curr.category_name] || 0) + parseFloat(curr.amount);
         return acc;
@@ -251,9 +258,9 @@ export default function Dashboard() {
             </Box>
             <Box sx={{ mt: 1, px: 2, minHeight: '60px' }}>
                {categoryData.slice(0, 3).map((item, index) => (
-                 <Box key={index} sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                    <Typography variant="body2" fontWeight="bold" sx={{ color: COLORS[index % COLORS.length], whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '140px' }}>● {item.name}</Typography>
-                    <Typography variant="body2" fontWeight="900">{formatCurrency(item.value)}</Typography>
+                 <Box key={index} sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, mb: 0.5 }}>
+                    <Typography variant="body2" fontWeight="bold" sx={{ color: COLORS[index % COLORS.length], whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0 }}>● {item.name}</Typography>
+                    <Typography variant="body2" fontWeight="900" sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}>{formatCurrency(item.value)}</Typography>
                  </Box>
                ))}
             </Box>

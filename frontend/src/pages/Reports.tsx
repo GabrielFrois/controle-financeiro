@@ -45,11 +45,15 @@ export default function Reports() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const userParams = activeUserIds.length > 0
-        ? { params: { user_ids: activeUserIds.join(',') } }
-        : {};
+      const params: Record<string, string> = { start_date: startDate, end_date: endDate };
+      if (activeUserIds.length > 0) params.user_ids = activeUserIds.join(',');
+
+      // Antes: baixava o histórico INTEIRO de transações e filtrava por
+      // data no navegador — a cada abertura da tela, mesmo com o preset de
+      // "último ano", vinha tudo. Agora start_date/end_date vão na própria
+      // query, então só trafega o que realmente cabe no período escolhido.
       const [transRes, catRes] = await Promise.all([
-        api.get('/transactions', userParams),
+        api.get('/transactions', { params }),
         api.get('/categories'),
       ]);
       setTransactions(Array.isArray(transRes.data) ? transRes.data : []);
@@ -59,18 +63,19 @@ export default function Reports() {
     } finally {
       setLoading(false);
     }
-  }, [activeUserIds]);
+  }, [activeUserIds, startDate, endDate]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
   const filteredData = useMemo(() => {
+    // A data já vem filtrada pelo servidor — aqui só resta tipo/categoria,
+    // que são baratos de refazer em memória a cada troca de select.
     return transactions.filter((t) => {
-      const tDate = t.date.split('T')[0];
       const matchType = typeFilter === 'Todos' || t.type === typeFilter;
       const matchCat = categoryFilter === 'Todas' || t.category_name === categoryFilter;
-      return tDate >= startDate && tDate <= endDate && matchType && matchCat;
+      return matchType && matchCat;
     });
-  }, [transactions, startDate, endDate, typeFilter, categoryFilter]);
+  }, [transactions, typeFilter, categoryFilter]);
 
   const stats = useMemo(() => {
     // Mesma regra do Dashboard/Resumo: uma compra no cartão de crédito só

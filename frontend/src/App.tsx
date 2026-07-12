@@ -1,8 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import {
   ThemeProvider, createTheme, CssBaseline, Box,
   AppBar, Toolbar, IconButton, Typography, useMediaQuery,
+  CircularProgress,
 } from '@mui/material';
 import { Menu as MenuIcon, Brightness4, Brightness7 } from '@mui/icons-material';
 import { AuthProvider } from './context/AuthContext';
@@ -10,12 +11,24 @@ import { FamilyProvider } from './context/FamilyContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import Sidebar, { drawerWidth } from './components/Sidebar';
 import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
-import Transactions from './pages/Transactions';
-import Investments from './pages/Investments';
-import Management from './pages/Management';
-import Budgets from './pages/Budgets';
-import Reports from './pages/Reports';
+
+// Login fica eager (é a primeira tela vista por quem não está autenticado).
+// As demais páginas viram chunks separados, baixados sob demanda — assim
+// quem só usa o Dashboard não baixa o JS de Reports/Investments/etc.
+const Dashboard    = lazy(() => import('./pages/Dashboard'));
+const Transactions = lazy(() => import('./pages/Transactions'));
+const Investments  = lazy(() => import('./pages/Investments'));
+const Management   = lazy(() => import('./pages/Management'));
+const Budgets      = lazy(() => import('./pages/Budgets'));
+const Reports      = lazy(() => import('./pages/Reports'));
+
+function RouteFallback() {
+  return (
+    <Box sx={{ display: 'flex', justifyContent: 'center', mt: 8 }}>
+      <CircularProgress />
+    </Box>
+  );
+}
 
 function AppLayout({ toggleTheme, mode }: { toggleTheme: () => void; mode: 'light' | 'dark' }) {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -65,15 +78,17 @@ function AppLayout({ toggleTheme, mode }: { toggleTheme: () => void; mode: 'ligh
           minWidth: 0, // evita que filhos com tabelas "empurrem" o layout
         }}
       >
-        <Routes>
-          <Route path="/"             element={<Dashboard />} />
-          <Route path="/transactions" element={<Transactions />} />
-          <Route path="/investments"  element={<Investments />} />
-          <Route path="/management"   element={<Management />} />
-          <Route path="/budgets"      element={<Budgets />} />
-          <Route path="/reports"      element={<Reports />} />
-          <Route path="*"             element={<Navigate to="/" replace />} />
-        </Routes>
+        <Suspense fallback={<RouteFallback />}>
+          <Routes>
+            <Route path="/"             element={<Dashboard />} />
+            <Route path="/transactions" element={<Transactions />} />
+            <Route path="/investments"  element={<Investments />} />
+            <Route path="/management"   element={<Management />} />
+            <Route path="/budgets"      element={<Budgets />} />
+            <Route path="/reports"      element={<Reports />} />
+            <Route path="*"             element={<Navigate to="/" replace />} />
+          </Routes>
+        </Suspense>
       </Box>
     </Box>
   );

@@ -23,7 +23,7 @@ export default function Dashboard() {
   // Estado de visualização: Mês, Ano ou Tudo
   const [viewMode, setViewMode] = useState<'month' | 'year' | 'all'>('month');
   
-  const [summary, setSummary] = useState({ income: 0, expense: 0, balance: 0 });
+  const [summary, setSummary] = useState({ income: 0, expense: 0, invested: 0, balance: 0 });
   const [totalBalance, setTotalBalance] = useState(0);
   const [patrimonio, setPatrimonio] = useState(0);
   const [categoryData, setCategoryData] = useState<any[]>([]);
@@ -48,7 +48,6 @@ export default function Dashboard() {
     const now = new Date();
     const currentMonth = now.getUTCMonth() + 1;
     const currentYear = now.getUTCFullYear();
-    const todayStr = now.toISOString().split('T')[0]; // Data de hoje para o Saldo
 
     // Define a URL baseada no filtro selecionado
     let summaryUrl = '/summary';
@@ -58,72 +57,21 @@ export default function Dashboard() {
       summaryUrl = `/summary?year=${currentYear}`;
     }
 
-    const userParams = activeUserIds.length > 0
-      ? { params: { user_ids: activeUserIds.join(',') } }
-      : {};
+    const baseParams = activeUserIds.length > 0 ? { user_ids: activeUserIds.join(',') } : {};
 
-    // user_ids aplicado tanto em /summary quanto em /transactions
-    // para garantir que o resumo financeiro respeite o filtro de usuários ativo
-    const [sumRes, transRes] = await Promise.all([
-      api.get(summaryUrl, userParams),
-      api.get('/transactions', userParams)
+    // Antes: baixava TODAS as transações e calculava saldo, patrimônio,
+    // categorias e recentes no navegador. Agora o Postgres já entrega os
+    // números prontos — o payload não cresce mais junto com o histórico.
+    const [sumRes, dashRes] = await Promise.all([
+      api.get(summaryUrl, { params: baseParams }),
+      api.get('/dashboard/summary', { params: { ...baseParams, period: viewMode } }),
     ]);
 
     setSummary(sumRes.data);
-    const allTransactions = transRes.data;
-
-    // Uma compra no cartão de crédito só deve pesar no saldo quando a fatura
-    // dela for paga (is_invoice_payment = true) — antes disso o dinheiro
-    // ainda não saiu de fato da conta. payment_method_closing_day só existe
-    // (não é null) para métodos de pagamento que são cartão de crédito.
-    const isUnpaidCardPurchase = (t: any) =>
-      t.type === 'EXPENSE' && !t.is_invoice_payment && t.payment_method_closing_day != null;
-
-    // --- CÁLCULO DO SALDO ---
-    const accumulated = allTransactions
-      .filter((t: any) => t.date <= todayStr && !isUnpaidCardPurchase(t))
-      .reduce((acc: number, t: any) => 
-        t.type === 'INCOME' ? acc + parseFloat(t.amount) : acc - parseFloat(t.amount), 0
-      );
-    setTotalBalance(accumulated);
-
-    // Cálculo do Patrimônio
-    const totalAportes = allTransactions
-      .filter((t: any) => t.category_name === 'Investimentos - Aporte')
-      .reduce((acc: any, curr: any) => acc + parseFloat(curr.amount), 0);
-    const totalResgates = allTransactions
-      .filter((t: any) => t.category_name === 'Investimentos - Resgate')
-      .reduce((acc: any, curr: any) => acc + parseFloat(curr.amount), 0);
-    setPatrimonio(totalAportes - totalResgates);
-
-    // Filtragem local para os blocos visuais
-    let filteredTransactions = allTransactions;
-    if (viewMode === 'month') {
-      filteredTransactions = allTransactions.filter((t: any) => {
-        const tDate = new Date(t.date);
-        return (tDate.getUTCMonth() + 1) === currentMonth && tDate.getUTCFullYear() === currentYear;
-      });
-    } else if (viewMode === 'year') {
-      filteredTransactions = allTransactions.filter((t: any) => {
-        const tDate = new Date(t.date);
-        return tDate.getUTCFullYear() === currentYear;
-      });
-    }
-
-    setRecentTransactions(filteredTransactions.slice(0, 5));
-
-    const expensesByCategory = filteredTransactions
-      .filter((t: any) => t.type === 'EXPENSE' && !isUnpaidCardPurchase(t))
-      .reduce((acc: any, curr: any) => {
-        acc[curr.category_name] = (acc[curr.category_name] || 0) + parseFloat(curr.amount);
-        return acc;
-      }, {});
-
-    setCategoryData(
-      Object.keys(expensesByCategory)
-        .map(name => ({ name, value: expensesByCategory[name] }))
-        .sort((a, b) => b.value - a.value)
-    );
+    setTotalBalance(dashRes.data.balance);
+    setPatrimonio(dashRes.data.patrimonio);
+    setCategoryData(dashRes.data.categoryData);
+    setRecentTransactions(dashRes.data.recentTransactions);
 
   } catch (error) {
     console.error("Erro no Dashboard:", error);
@@ -216,8 +164,17 @@ export default function Dashboard() {
               </Box>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={[{ name: 'Entradas', value: summary.income }, { name: 'Saídas', value: summary.expense }]} innerRadius={isMobile ? 60 : 85} outerRadius={isMobile ? 82 : 115} dataKey="value" stroke="none">
-                    <Cell fill={theme.palette.success.main} /><Cell fill={theme.palette.error.main} />
+                  <Pie
+                    data={[
+                      { name: 'Entradas', value: summary.income },
+                      { name: 'Despesas', value: summary.expense - summary.invested },
+                      { name: 'Investido', value: summary.invested },
+                    ]}
+                    innerRadius={isMobile ? 60 : 85} outerRadius={isMobile ? 82 : 115} dataKey="value" stroke="none"
+                  >
+                    <Cell fill={theme.palette.success.main} />
+                    <Cell fill={theme.palette.error.main} />
+                    <Cell fill="#9c27b0" />
                   </Pie>
                   <Tooltip formatter={(value: any) => formatCurrency(Number(value))} />
                 </PieChart>
@@ -228,9 +185,13 @@ export default function Dashboard() {
                   <Typography variant="body2" fontWeight="bold" color="success.main">● Entradas</Typography>
                   <Typography variant="body2" fontWeight="900">{summary.income > 0 ? ((summary.income / (summary.income + summary.expense)) * 100).toFixed(0) : 0}%</Typography>
                </Box>
+               <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                  <Typography variant="body2" fontWeight="bold" color="error.main">● Despesas</Typography>
+                  <Typography variant="body2" fontWeight="900">{summary.expense > 0 ? (((summary.expense - summary.invested) / (summary.income + summary.expense)) * 100).toFixed(0) : 0}%</Typography>
+               </Box>
                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <Typography variant="body2" fontWeight="bold" color="error.main">● Saídas</Typography>
-                  <Typography variant="body2" fontWeight="900">{summary.expense > 0 ? ((summary.expense / (summary.income + summary.expense)) * 100).toFixed(0) : 0}%</Typography>
+                  <Typography variant="body2" fontWeight="bold" sx={{ color: '#9c27b0' }}>● Investido</Typography>
+                  <Typography variant="body2" fontWeight="900">{summary.invested > 0 ? ((summary.invested / (summary.income + summary.expense)) * 100).toFixed(0) : 0}%</Typography>
                </Box>
             </Box>
           </Paper>

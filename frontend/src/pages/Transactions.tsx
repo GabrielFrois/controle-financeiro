@@ -183,7 +183,10 @@ export default function Transactions() {
       setOpen(false);
       fetchData();
     } catch (err: any) {
-      const message = err?.response?.data?.error ?? 'Erro ao salvar';
+      const details = err?.response?.data?.details as { field: string; message: string }[] | undefined;
+      const message = details?.length
+        ? details.map((d) => `${d.field}: ${d.message}`).join('\n')
+        : (err?.response?.data?.error ?? 'Erro ao salvar');
       alert(message);
     }
   };

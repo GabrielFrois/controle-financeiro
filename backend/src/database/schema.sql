@@ -113,10 +113,12 @@ CREATE TABLE IF NOT EXISTS family_members (
 ALTER TABLE budgets ADD COLUMN IF NOT EXISTS scope VARCHAR(10) NOT NULL DEFAULT 'FAMILY'
     CHECK (scope IN ('PERSONAL', 'FAMILY'));
 
-CREATE INDEX IF NOT EXISTS idx_transactions_date     ON transactions(date);
-CREATE INDEX IF NOT EXISTS idx_transactions_user_id  ON transactions(user_id);
-CREATE INDEX IF NOT EXISTS idx_transactions_group_id ON transactions(installment_group_id);
-CREATE INDEX IF NOT EXISTS idx_family_members_user   ON family_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_date              ON transactions(date);
+CREATE INDEX IF NOT EXISTS idx_transactions_user_id           ON transactions(user_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_group_id          ON transactions(installment_group_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_category_id       ON transactions(category_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_payment_method_id ON transactions(payment_method_id);
+CREATE INDEX IF NOT EXISTS idx_family_members_user            ON family_members(user_id);
 
 ALTER TABLE assets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE budgets ENABLE ROW LEVEL SECURITY;

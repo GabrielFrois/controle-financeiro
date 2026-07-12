@@ -33,6 +33,13 @@ export async function getSummary(req: Request, res: Response) {
   // deve impactar receitas/despesas quando a fatura dela for paga
   // (is_invoice_payment = TRUE), não no momento da compra — assim como no
   // extrato bancário real, o dinheiro só sai quando a fatura é quitada.
+  //
+  // `invested` isola, dentro do total de despesas, o que na verdade foi
+  // aporte em investimento (categoria contém "investimento", mesmo critério
+  // já usado no formulário do frontend para decidir se mostra os campos de
+  // ativo/ticker). O dinheiro saiu da conta, mas virou patrimônio — não foi
+  // gasto de verdade, e por isso o gráfico "Distribuição Geral" no Dashboard
+  // separa essa fatia de "Despesas".
   const sql = `
     SELECT
       SUM(CASE WHEN t.type = 'INCOME' THEN t.amount ELSE 0 END) AS total_income,
@@ -43,18 +50,29 @@ export async function getSummary(req: Request, res: Response) {
           THEN t.amount
           ELSE 0
         END
-      ) AS total_expense
+      ) AS total_expense,
+      SUM(
+        CASE
+          WHEN t.type = 'EXPENSE'
+           AND NOT (pm.closing_day IS NOT NULL AND t.is_invoice_payment = FALSE)
+           AND c.name ILIKE '%investimento%'
+          THEN t.amount
+          ELSE 0
+        END
+      ) AS total_invested
     FROM transactions t
     LEFT JOIN payment_methods pm ON t.payment_method_id = pm.id
+    LEFT JOIN categories      c  ON t.category_id       = c.id
     ${where}
   `;
 
   try {
     const result = await query(sql, values);
-    const { total_income, total_expense } = result.rows[0];
-    const income  = parseFloat(total_income  || 0);
-    const expense = parseFloat(total_expense || 0);
-    res.json({ income, expense, balance: income - expense });
+    const { total_income, total_expense, total_invested } = result.rows[0];
+    const income   = parseFloat(total_income    || 0);
+    const expense  = parseFloat(total_expense   || 0);
+    const invested = parseFloat(total_invested  || 0);
+    res.json({ income, expense, invested, balance: income - expense });
   } catch {
     res.status(500).json({ error: 'Erro ao calcular resumo' });
   }

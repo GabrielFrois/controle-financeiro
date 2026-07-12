@@ -62,6 +62,19 @@ export const updatePaymentMethodSchema = createPaymentMethodSchema.extend({
   active: z.boolean().default(true).optional(),
 });
 
+// O formulário do frontend sempre envia paid_card_id e
+// invoice_reference_month como string vazia ('') quando o lançamento NÃO é
+// um pagamento de fatura — só preenche esses campos de fato para esse caso
+// específico. Sem esse preprocess, o Zod tenta validar '' diretamente:
+// z.coerce.number() transforma '' em 0 (falha em .positive()), e '' nunca
+// bate com o regex de mês. Isso quebrava a criação/edição de QUALQUER
+// transação comum, não só pagamentos de fatura.
+const emptyStringToNull = (val: unknown) => (val === '' ? null : val);
+const optionalPositiveIntOrNull = () =>
+  z.preprocess(emptyStringToNull, z.coerce.number().int().positive().nullable().optional());
+const optionalYearMonthOrNull = () =>
+  z.preprocess(emptyStringToNull, z.string().regex(/^\d{4}-\d{2}$/, 'Mês de referência inválido (YYYY-MM).').nullable().optional());
+
 export const createTransactionSchema = z.object({
   description:       z.string().min(1, 'Descrição obrigatória.'),
   amount:            z.coerce.number().positive('O valor deve ser positivo.'),
@@ -79,8 +92,8 @@ export const createTransactionSchema = z.object({
   // (total ou parcialmente) a fatura do cartão `paid_card_id` referente ao
   // mês `invoice_reference_month` (formato YYYY-MM).
   is_invoice_payment:      z.coerce.boolean().default(false).optional(),
-  paid_card_id:            z.coerce.number().int().positive().nullable().optional(),
-  invoice_reference_month: z.string().regex(/^\d{4}-\d{2}$/).nullable().optional(),
+  paid_card_id:            optionalPositiveIntOrNull(),
+  invoice_reference_month: optionalYearMonthOrNull(),
 });
 
 export const updateTransactionSchema = z.object({
@@ -96,8 +109,8 @@ export const updateTransactionSchema = z.object({
   asset_ticker:      z.string().default('').optional(),
   quantity:          z.coerce.number().min(0).nullable().optional(),
   is_invoice_payment:      z.coerce.boolean().default(false).optional(),
-  paid_card_id:            z.coerce.number().int().positive().nullable().optional(),
-  invoice_reference_month: z.string().regex(/^\d{4}-\d{2}$/).nullable().optional(),
+  paid_card_id:            optionalPositiveIntOrNull(),
+  invoice_reference_month: optionalYearMonthOrNull(),
 });
 
 export const updateGroupTransactionSchema = z.object({

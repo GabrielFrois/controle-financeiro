@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import compression from 'compression';
 import dotenv from 'dotenv';
 import { query } from './database/index.js';
 import { authenticate } from './middleware/auth.js';
@@ -16,6 +17,7 @@ import budgetsRouter        from './routes/budgets.routes.js';
 import assetsRouter         from './routes/assets.routes.js';
 import { getInvoice }       from './controllers/invoice.controller.js';
 import { getSummary }       from './controllers/summary.controller.js';
+import { getDashboardSummary } from './controllers/dashboard.controller.js';
 
 dotenv.config();
 
@@ -39,6 +41,11 @@ app.set('trust proxy', 1);
 
 // Headers de segurança (Helmet)
 app.use(helmet());
+
+// Compressão gzip/brotli das respostas — reduz bastante o payload de JSON
+// das rotas de listagem (transações, relatórios), especialmente relevante
+// para quem acessa de conexões móveis mais lentas.
+app.use(compression());
 
 // CORS
 const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()) ?? [];
@@ -79,6 +86,7 @@ app.use('/api/profile',         profileRouter);
 
 app.get('/api/credit-card/invoice', authenticate, getInvoice);
 app.get('/api/summary',             authenticate, getSummary);
+app.get('/api/dashboard/summary',   authenticate, getDashboardSummary);
 
 // Na Vercel (Services) o Express é usado como um handler de requisição, não
 // como um servidor de longa duração — o import do módulo não deve abrir uma

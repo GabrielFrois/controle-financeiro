@@ -149,6 +149,25 @@ export async function listTransactions(req: Request, res: Response) {
     // quem está logado — nunca "todo mundo", e nunca alguém fora da família.
     const userIds = await resolveAllowedUserIds(req.user!.userId, req.query.user_ids as string | undefined);
 
+    // Filtro de período opcional (YYYY-MM-DD). Quando ausente, mantém o
+    // comportamento anterior (histórico completo) — telas como Investments
+    // e Budgets ainda dependem disso. Reports.tsx, que já tem um seletor de
+    // datas na própria UI, agora manda start_date/end_date para não baixar
+    // o histórico inteiro a cada consulta.
+    const { start_date, end_date } = req.query as { start_date?: string; end_date?: string };
+    const dateConditions: string[] = [];
+    const params: unknown[] = [userIds];
+
+    if (start_date) {
+      dateConditions.push(`t.date >= $${params.length + 1}`);
+      params.push(start_date);
+    }
+    if (end_date) {
+      dateConditions.push(`t.date <= $${params.length + 1}`);
+      params.push(end_date);
+    }
+    const dateWhere = dateConditions.length > 0 ? `AND ${dateConditions.join(' AND ')}` : '';
+
     const sql = `
       SELECT
         t.*,
@@ -166,9 +185,10 @@ export async function listTransactions(req: Request, res: Response) {
       LEFT JOIN payment_methods p ON t.payment_method_id = p.id
       LEFT JOIN assets          a ON t.asset_id          = a.id
       WHERE t.user_id = ANY($1::int[])
+      ${dateWhere}
       ORDER BY t.date DESC, t.id DESC
     `;
-    const result = await query(sql, [userIds]);
+    const result = await query(sql, params);
     res.json(result.rows);
   } catch {
     res.status(500).json({ error: 'Erro ao buscar extrato' });
